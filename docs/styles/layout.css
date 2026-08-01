@@ -24,9 +24,6 @@
 }
 
 .camera-video {
-  /* Gercek boyutunda tutulur (bazi tarayicilar cok kucuk/opacity:0 video
-     elemanlarinin kare dekodunu kisabiliyor/durdurabiliyor); gorunmez olmasi
-     ustundeki opak scene-canvas'in her karede tamamen kaplamasiyla saglanir. */
   position: absolute;
   inset: 0;
   width: 100%;
@@ -34,6 +31,8 @@
   object-fit: cover;
   z-index: 0;
   pointer-events: none;
+  image-rendering: high-quality;
+  image-rendering: crisp-edges;
 }
 
 .scene-canvas {
@@ -43,6 +42,8 @@
   height: 100%;
   z-index: 1;
   pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 /* ---------------- Simple Mode ---------------- */
@@ -186,6 +187,7 @@
   flex-direction: column;
   gap: 9px;
   pointer-events: auto;
+  z-index: 4;
 }
 
 .panel-title {
@@ -216,9 +218,7 @@
   position: absolute;
   top: 16px;
   left: 16px;
-  /* Baslangic ekraninin (z-index 30) USTUNDE durmali; aksi halde panele
-     ulasmanin hicbir yolu kalmiyordu. */
-  z-index: 35;
+  z-index: 24;
   width: 38px;
   height: 38px;
   border-radius: 10px;
@@ -228,9 +228,8 @@
   font-size: 17px;
   cursor: pointer;
   pointer-events: auto;
-  /* HER ZAMAN gorunur: panel gizli kalirsa onu geri getirmenin garantili
-     tek yolu budur. */
   display: block;
+  transition: all 0.2s ease;
 }
 
 body:not(.started) .rec-badge {
@@ -313,7 +312,7 @@ body:not(.started) .rec-badge {
   position: absolute;
   top: 16px;
   right: 16px;
-  z-index: 13;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -493,11 +492,12 @@ body:not(.started) .rec-badge {
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  z-index: 25;
+  z-index: 10;
 }
 
 .camera-error-panel {
   max-width: 440px;
+  width: 90%;
   text-align: center;
   border-top: 3px solid var(--warning);
 }
@@ -516,14 +516,15 @@ body:not(.started) .rec-badge {
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  z-index: 20;
+  z-index: 11;
 }
 
 .guide-panel {
   max-width: 720px;
   width: 90%;
-  max-height: 80vh;
+  max-height: min(80vh, 90dvh);
   overflow: auto;
+  padding: 16px;
 }
 
 .guide-panel h2 { margin-top: 0; }
@@ -541,7 +542,8 @@ body:not(.started) .rec-badge {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 20;
+  pointer-events: auto;
 }
 
 .typewriter-container {
@@ -550,7 +552,8 @@ body:not(.started) .rec-badge {
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
-  z-index: 31;
+  z-index: 21;
+  pointer-events: auto;
 }
 
 .typewriter-text {
@@ -713,7 +716,8 @@ body:not(.started) .rec-badge {
   background: rgba(0, 0, 0, 0.85);
   color: #9cff9c;
   font-size: 11px;
-  z-index: 40;
+  z-index: 100;
+  pointer-events: auto;
 }
 
 [hidden] { display: none !important; }
@@ -747,7 +751,7 @@ body:not(.started) .rec-badge {
     width: min(84vw, 300px);
     max-height: 100dvh;
     border-radius: 0 16px 16px 0;
-    z-index: 22;
+    z-index: 5;
     transition: transform 0.22s ease;
   }
 
@@ -771,11 +775,11 @@ body:not(.started) .rec-badge {
   /* Dikey telefonda yandaki dalga formu yer kaplamasin. */
   .simple-waveform-canvas {
     top: auto;
-    bottom: 96px;
+    bottom: 110px;
     right: 10px;
     transform: none;
-    width: 54px;
-    height: 26vh;
+    width: 52px;
+    height: 22vh;
   }
 
   .chord-card {
@@ -785,22 +789,30 @@ body:not(.started) .rec-badge {
     left: 12px;
     right: 12px;
     transform: none;
-    top: 64px;
+    top: 70px;
   }
 
   .note-card {
     left: auto;
     right: 12px;
-    top: 12px;
+    top: 16px;
     transform: none;
-    padding: 8px 14px;
+    padding: 8px 12px;
+    max-width: 90px;
   }
 
-  .note-card .note-name { font-size: 24px; }
-  .chord-name { font-size: 26px; }
+  .note-card .note-name { font-size: 20px; }
+  .chord-name { font-size: 22px; }
 
-  .status-dot-row { top: 66px; left: 16px; display: none; }
-  .instrument-strip { bottom: 14px; width: calc(100% - 24px); max-width: none; }
+  .status-dot-row { top: 72px; left: 16px; display: none; }
+  .instrument-strip {
+    bottom: 70px;
+    width: calc(100% - 24px);
+    max-width: none;
+    left: 12px;
+    right: 12px;
+    transform: none;
+  }
   .mode-hint { display: none; }
 
   /* Gelismis mod telefonda dikey olarak kaydirilabilir. */

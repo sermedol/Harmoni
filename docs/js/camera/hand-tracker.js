@@ -64,8 +64,8 @@ export class HandTracker {
         baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
         runningMode: "VIDEO",
         numHands: this.maxHands,
-        minHandDetectionConfidence: 0.58,
-        minTrackingConfidence: 0.5,
+        minHandDetectionConfidence: 0.50,
+        minTrackingConfidence: 0.45,
       });
       this.available = true;
     } catch (err) {
@@ -109,9 +109,9 @@ export class HandTracker {
         let normalized;
         if (previous) {
           normalized = rawNormalized.map((p, i) => [
-            previous[i][0] * 0.52 + p[0] * 0.48,
-            previous[i][1] * 0.52 + p[1] * 0.48,
-            previous[i][2] * 0.52 + p[2] * 0.48,
+            previous[i][0] * 0.45 + p[0] * 0.55,
+            previous[i][1] * 0.45 + p[1] * 0.55,
+            previous[i][2] * 0.45 + p[2] * 0.55,
           ]);
         } else {
           normalized = rawNormalized;

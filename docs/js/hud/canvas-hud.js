@@ -80,7 +80,7 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   // ---- Sol ust: marka + secili tur ----
   const brandW = 208;
   card(ctx, 20, 18, brandW, 58, theme, { accent });
-  label(ctx, "HARMONI", 34, 42, 19, theme.text, "700");
+  label(ctx, "HARMONİ", 34, 42, 19, theme.text, "700");
   label(ctx, v.genreLabel || "Serbest mod", 34, 62, 11.5, theme.muted);
 
   // ---- Ust orta: su an calan eslik ----
