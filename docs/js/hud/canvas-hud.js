@@ -116,47 +116,85 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
     label(ctx, level > 0.03 ? "Sinyal alınıyor" : "Mikrofon hazır", meterX, 89, 11, level > 0.03 ? theme.text : theme.muted, "600");
   }
 
-  // ---- Sol alt: durum + jest ----
-  const sy = H - 96;
-  card(ctx, 20, sy, 250, 74, theme, { alpha: 0.78 });
+  // ---- Alt bilgi satiri: durum ve orkestra ----
+  const infoY = H - 154;
+  card(ctx, 20, infoY, 250, 48, theme, { alpha: 0.8 });
   ctx.beginPath();
-  ctx.arc(38, sy + 24, 5.5, 0, Math.PI * 2);
+  ctx.arc(38, infoY + 18, 5.5, 0, Math.PI * 2);
   ctx.fillStyle = v.ready ? theme.success : theme.warning;
   ctx.fill();
-  label(ctx, v.statusLabel, 52, sy + 28, 11.5, theme.text, "600");
-  label(ctx, (v.gesture || "").slice(0, 30), 34, sy + 48, 11, theme.muted);
-  label(ctx, (v.gestureDetail || "").slice(0, 32), 34, sy + 64, 10.5, theme.muted);
+  label(ctx, v.statusLabel, 52, infoY + 22, 11.5, theme.text, "600");
+  const gestureText = [v.gesture, v.gestureDetail].filter(Boolean).join(" · ").slice(0, 42);
+  label(ctx, gestureText || "Hareket bekleniyor", 34, infoY + 39, 10, theme.muted);
 
-  // ---- Alt orta: calan enstrumanlar ----
+  // ---- Calan enstrumanlar ----
   const names = v.instruments;
   const text = names.length ? names.join("  ·  ") : "Eşlik için ses bekleniyor";
-  const tw = Math.min(W - 620, measure(ctx, text, 12) + 40);
-  const ix = W / 2 - tw / 2;
-  const iy = H - 74;
-  card(ctx, ix, iy, tw, 52, theme, { alpha: 0.8 });
-  label(ctx, `ORKESTRA — ${names.length} KATMAN`, ix + 18, iy + 19, 9.5, theme.muted, "600");
-  // Tasarsa kirp.
+  const ix = 284;
+  const iw = W - ix - 20;
+  card(ctx, ix, infoY, iw, 48, theme, { alpha: 0.82 });
+  label(ctx, `ORKESTRA · ${names.length} KATMAN`, ix + 16, infoY + 17, 9, theme.muted, "600");
   let shown = text;
-  while (shown.length > 8 && measure(ctx, shown, 12) > tw - 36) {
+  while (shown.length > 8 && measure(ctx, shown, 11) > iw - 32) {
     shown = shown.slice(0, -4) + "…";
   }
-  label(ctx, shown, ix + 18, iy + 39, 12, theme.text);
+  label(ctx, shown, ix + 16, infoY + 36, 11, theme.text);
 
-  // ---- Sag alt: dalga formu (yatay, kayda da girsin diye canvas'ta) ----
-  const ww = 200;
-  const wx = W - ww - 20;
-  const wy = H - 96;
-  card(ctx, wx, wy, ww, 74, theme, { alpha: 0.78 });
-  label(ctx, "CANLI DALGA", wx + 16, wy + 18, 9.5, theme.muted, "600");
+  // ---- Gelismis ses analizi seridi ----
+  const ax = 20;
+  const ay = H - 94;
+  const aw = W - 40;
+  const ah = 72;
+  card(ctx, ax, ay, aw, ah, theme, { accent: theme.primary, alpha: 0.9 });
+
+  const cells = [
+    { label: "NOTA", value: v.voiced ? v.noteName : "—", width: 86, color: theme.primary },
+    { label: "FREKANS", value: v.voiced ? `${v.frequency.toFixed(1)} Hz` : "—", width: 118 },
+    { label: "TEMPO", value: `${Math.round(v.bpm)} BPM`, width: 100 },
+    { label: "NETLİK", value: v.voiced ? `%${Math.round((v.pitchConfidence || 0) * 100)}` : "—", width: 92 },
+    { label: "SAPMA", value: v.voiced ? `${v.pitchCents >= 0 ? "+" : ""}${v.pitchCents.toFixed(0)} ct` : "—", width: 92 },
+  ];
+  label(ctx, "SES ANALİZİ", ax + 16, ay + 19, 9, theme.muted, "700");
+  let cellX = ax + 112;
+  for (const item of cells) {
+    ctx.beginPath();
+    ctx.moveTo(cellX, ay + 13);
+    ctx.lineTo(cellX, ay + ah - 13);
+    ctx.strokeStyle = theme.panel2;
+    ctx.globalAlpha = 0.75;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    label(ctx, item.label, cellX + 13, ay + 22, 8.5, theme.muted, "600");
+    label(ctx, item.value, cellX + 13, ay + 49, 15, item.color || theme.text, "700");
+    cellX += item.width;
+  }
+
+  const levelX = cellX + 13;
+  const levelW = 126;
+  label(ctx, "GİRİŞ SEVİYESİ", levelX, ay + 22, 8.5, theme.muted, "600");
+  roundRect(ctx, levelX, ay + 36, levelW, 9, 4.5);
+  ctx.fillStyle = theme.panel2;
+  ctx.fill();
+  const liveLevel = Math.min(1, Math.max(0, v.inputLevel || 0));
+  if (liveLevel > 0.01) {
+    roundRect(ctx, levelX, ay + 36, Math.max(9, levelW * liveLevel), 9, 4.5);
+    ctx.fillStyle = liveLevel > 0.82 ? theme.warning : theme.primary;
+    ctx.fill();
+  }
+  label(ctx, liveLevel > 0.03 ? "Sinyal" : "Hazır", levelX, ay + 60, 9.5, liveLevel > 0.03 ? theme.text : theme.muted, "600");
+
+  const waveX = levelX + levelW + 24;
+  const waveW = ax + aw - waveX - 16;
+  label(ctx, "CANLI DALGA", waveX, ay + 19, 8.5, theme.muted, "600");
   const wf = v.waveform;
-  if (wf && wf.length > 1) {
-    const midY = wy + 46;
+  if (wf && wf.length > 1 && waveW > 40) {
+    const midY = ay + 45;
     ctx.beginPath();
     ctx.strokeStyle = theme.primary;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.4;
     for (let i = 0; i < wf.length; i++) {
-      const px = wx + 16 + (i / (wf.length - 1)) * (ww - 32);
-      const py = midY - Math.max(-1, Math.min(1, wf[i])) * 20;
+      const px = waveX + (i / (wf.length - 1)) * waveW;
+      const py = midY - Math.max(-1, Math.min(1, wf[i])) * 17;
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     }
