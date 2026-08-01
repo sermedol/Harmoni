@@ -761,6 +761,104 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
   .start-credit { bottom:calc(16px + env(safe-area-inset-bottom)); font-size:8px; }
 }
 
+/* Görsel son katman */
+.stage::after {
+  background:
+    radial-gradient(circle at 50% 12%,color-mix(in srgb,var(--primary) 7%,transparent),transparent 34%),
+    linear-gradient(180deg,rgba(5,7,12,.16),transparent 32%,rgba(5,7,12,.3));
+}
+.panel-toggle {
+  height:42px;
+  padding:0 15px;
+  border-color:color-mix(in srgb,var(--text) 13%,transparent);
+  background:color-mix(in srgb,var(--panel) 82%,transparent);
+  box-shadow:0 12px 34px rgba(0,0,0,.28);
+  backdrop-filter:blur(16px) saturate(1.25);
+  transition:transform .18s ease,background .18s ease,border-color .18s ease;
+}
+.panel-toggle:hover { transform:translateY(-1px); background:color-mix(in srgb,var(--panel2) 82%,transparent); border-color:color-mix(in srgb,var(--primary) 42%,transparent); }
+.panel-toggle span { color:var(--primary); font-size:15px; }
+.options-panel {
+  width:304px;
+  border-radius:26px;
+  border-color:color-mix(in srgb,var(--text) 11%,transparent);
+  background:linear-gradient(165deg,color-mix(in srgb,var(--panel) 96%,transparent),color-mix(in srgb,var(--bg) 93%,transparent));
+  box-shadow:0 30px 90px rgba(0,0,0,.56),inset 0 1px 0 color-mix(in srgb,var(--text) 7%,transparent);
+  backdrop-filter:blur(24px) saturate(1.2);
+}
+.panel-title { font-weight:800; }
+.panel-section-title { margin-top:5px; color:color-mix(in srgb,var(--accent) 86%,var(--text)); }
+.option-row select,.option-button,.instrument-chip {
+  border-color:color-mix(in srgb,var(--text) 9%,transparent);
+  background:color-mix(in srgb,var(--panel2) 56%,transparent);
+}
+.option-row select:hover,.option-button:hover,.instrument-chip:hover { border-color:color-mix(in srgb,var(--primary) 38%,transparent); }
+.option-row input[type="range"] { height:5px; background:linear-gradient(90deg,color-mix(in srgb,var(--primary) 35%,var(--panel2)),var(--panel2)); }
+.instrument-chip.active { background:color-mix(in srgb,var(--success) 10%,var(--panel2)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--success) 22%,transparent); }
+.guide-action { background:linear-gradient(135deg,color-mix(in srgb,var(--primary) 12%,var(--panel2)),color-mix(in srgb,var(--secondary) 10%,var(--panel2))); }
+.guide-panel { border-color:color-mix(in srgb,var(--text) 12%,transparent); background:linear-gradient(160deg,color-mix(in srgb,var(--panel) 98%,transparent),color-mix(in srgb,var(--bg) 96%,transparent)); box-shadow:0 30px 100px rgba(0,0,0,.58); }
+.feza-signature { border:0; background:rgba(8,10,15,.34); opacity:.72; }
+
+.start-overlay { padding-bottom:76px; }
+.start-panel {
+  width:min(92vw,390px);
+  padding:6px;
+  border-radius:22px;
+  border-color:color-mix(in srgb,var(--text) 12%,transparent);
+  background:color-mix(in srgb,var(--panel) 72%,transparent);
+  box-shadow:0 22px 72px rgba(0,0,0,.5),inset 0 1px 0 color-mix(in srgb,var(--text) 8%,transparent);
+  backdrop-filter:blur(22px) saturate(1.25);
+}
+.start-overlay .start-button {
+  display:grid;
+  grid-template-columns:46px minmax(0,1fr) 34px;
+  grid-template-areas:none;
+  gap:12px;
+  padding:10px;
+  border-radius:17px;
+  background:linear-gradient(135deg,color-mix(in srgb,var(--panel2) 66%,transparent),color-mix(in srgb,var(--primary) 9%,var(--panel)));
+  text-align:left;
+}
+.start-overlay .start-button:hover { transform:translateY(-2px); filter:brightness(1.08); }
+.start-orb {
+  grid-area:auto !important;
+  width:46px !important;
+  height:46px !important;
+  display:grid !important;
+  place-items:center;
+  border-radius:15px !important;
+  background:linear-gradient(135deg,var(--primary),var(--secondary)) !important;
+  color:#071018 !important;
+  font-size:14px !important;
+  font-style:normal;
+  box-shadow:0 9px 24px color-mix(in srgb,var(--primary) 26%,transparent);
+}
+.start-copy { grid-area:auto !important; display:flex !important; flex-direction:column; justify-content:center; gap:3px; overflow:hidden; color:var(--text) !important; font-size:inherit !important; font-weight:inherit !important; letter-spacing:0 !important; text-transform:none !important; }
+.start-overlay .start-copy b { grid-area:auto !important; font-size:15px; line-height:1.2; letter-spacing:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.start-copy small { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.start-arrow {
+  grid-area:auto !important;
+  width:34px !important;
+  height:34px !important;
+  display:grid !important;
+  place-items:center;
+  align-self:center;
+  border-radius:11px !important;
+  background:color-mix(in srgb,var(--text) 7%,transparent) !important;
+  color:var(--text) !important;
+  font-size:17px !important;
+  font-style:normal;
+}
+
+@media (max-width:480px) {
+  .start-overlay { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+  .start-panel { width:min(94vw,360px); }
+  .start-overlay .start-button { grid-template-columns:42px minmax(0,1fr) 32px; gap:9px; padding:9px; }
+  .start-orb { width:42px !important; height:42px !important; }
+  .start-copy small { font-size:9px; }
+  .start-arrow { width:32px !important; height:32px !important; }
+}
+
 @media (max-width:420px) {
   .options-panel { width:100vw; border-radius:0; }
   .instrument-grid { grid-template-columns:1fr 1fr; }
