@@ -67,12 +67,26 @@ export class Camera {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 },
+          aspectRatio: { ideal: 16 / 9 },
+          frameRate: { ideal: 30, max: 60 },
+          facingMode: { ideal: "user" },
+          resizeMode: { ideal: "none" },
         },
         audio: false,
       });
+      const track = this.stream.getVideoTracks()[0];
+      try {
+        const capabilities = track?.getCapabilities?.() || {};
+        const advanced = {};
+        if (capabilities.focusMode?.includes("continuous")) advanced.focusMode = "continuous";
+        if (capabilities.exposureMode?.includes("continuous")) advanced.exposureMode = "continuous";
+        if (capabilities.whiteBalanceMode?.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+        if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] });
+      } catch (qualityError) {
+        console.info("Camera: gelişmiş görüntü ayarları bu cihazda kullanılamıyor.", qualityError);
+      }
       this.video.srcObject = this.stream;
       await this.video.play();
       await new Promise((resolve) => {
@@ -81,6 +95,7 @@ export class Camera {
       });
       this.width = this.video.videoWidth || 1280;
       this.height = this.video.videoHeight || 720;
+      this.settings = track?.getSettings?.() || {};
       this.status = "ONLINE";
       return true;
     } catch (err) {

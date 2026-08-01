@@ -10,7 +10,7 @@ import { GENRES, getGenre } from "./constants/genres.js";
 import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js";
 import { loadConfig, saveConfig } from "./config.js?v=20260801-20";
 import { createAppState } from "./app-state.js";
-import { Camera } from "./camera/camera.js";
+import { Camera } from "./camera/camera.js?v=20260801-23";
 import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
@@ -564,22 +564,11 @@ function updateHudLive() {
   }
 }
 
-function fitCover(srcW, srcH, dstW, dstH) {
-  const srcAspect = srcW / srcH;
-  const dstAspect = dstW / dstH;
-  let sw, sh, sx, sy;
-  if (srcAspect > dstAspect) {
-    sh = srcH;
-    sw = srcH * dstAspect;
-    sx = (srcW - sw) / 2;
-    sy = 0;
-  } else {
-    sw = srcW;
-    sh = srcW / dstAspect;
-    sx = 0;
-    sy = (srcH - sh) / 2;
-  }
-  return { sx, sy, sw, sh };
+function fitContain(srcW, srcH, dstW, dstH) {
+  const scale = Math.min(dstW / srcW, dstH / srcH);
+  const dw = srcW * scale;
+  const dh = srcH * scale;
+  return { dx: (dstW - dw) / 2, dy: (dstH - dh) / 2, dw, dh };
 }
 
 let camera = null;
@@ -589,13 +578,25 @@ let frameCount = 0;
 let fpsWindowStart = performance.now();
 
 function drawRealFrame(video) {
-  const { sx, sy, sw, sh } = fitCover(video.videoWidth, video.videoHeight, CAM_WIDTH, CAM_HEIGHT);
+  const srcW = video.videoWidth || CAM_WIDTH;
+  const srcH = video.videoHeight || CAM_HEIGHT;
+  const { dx, dy, dw, dh } = fitContain(srcW, srcH, CAM_WIDTH, CAM_HEIGHT);
   ctx.save();
+  const frameBg = ctx.createLinearGradient(0, 0, CAM_WIDTH, CAM_HEIGHT);
+  frameBg.addColorStop(0, "#090507");
+  frameBg.addColorStop(0.5, "#160a0f");
+  frameBg.addColorStop(1, "#090507");
+  ctx.fillStyle = frameBg;
+  ctx.fillRect(0, 0, CAM_WIDTH, CAM_HEIGHT);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   if (config.mirror) {
     ctx.translate(CAM_WIDTH, 0);
     ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, srcW, srcH, CAM_WIDTH - dx - dw, dy, dw, dh);
+  } else {
+    ctx.drawImage(video, 0, 0, srcW, srcH, dx, dy, dw, dh);
   }
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAM_WIDTH, CAM_HEIGHT);
   ctx.restore();
 }
 
