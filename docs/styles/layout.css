@@ -150,6 +150,17 @@
   opacity: 0.7;
 }
 
+/* Basit Mod'un bilgi kartlari artik canvas'a ciziliyor (bkz. hud/canvas-hud.js)
+   - hem ekranda hem de kayitta gorunsunler diye. DOM kopyalari gizlenir;
+   elemanlar DOM'da kalir ki main.js referanslari kirilmasin. */
+.chord-card,
+.note-card,
+.status-dot-row,
+.instrument-strip,
+.simple-waveform-canvas {
+  display: none !important;
+}
+
 .simple-waveform-canvas {
   position: absolute;
   top: 50%;

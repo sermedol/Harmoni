@@ -25,6 +25,11 @@ export function createAppState() {
     showGuide: false,
     simpleMode: true,
     themeIndex: 0,
+    // Secili dizi/makamin gosterim adi (bkz. constants/tonal-systems.js)
+    tonalDisplayName: "Otomatik",
+    genreId: "",
+    tonalSelection: "western:auto",
+    musicGain: 0.30,
     brightness: 1.0,
     articulation: 0.5,
 

@@ -15,7 +15,7 @@ import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawSideWaveform } from "./hud/waveform-spectrum.js";
+import { drawCanvasHud } from "./hud/canvas-hud.js";
 import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;
@@ -82,18 +82,11 @@ els.sceneCanvas.width = CAM_WIDTH;
 els.sceneCanvas.height = CAM_HEIGHT;
 const ctx = els.sceneCanvas.getContext("2d");
 
-const waveformCtx = els.simpleWaveformCanvas.getContext("2d");
-function resizeWaveformCanvas() {
-  const rect = els.simpleWaveformCanvas.getBoundingClientRect();
-  els.simpleWaveformCanvas.width = Math.max(1, Math.round(rect.width));
-  els.simpleWaveformCanvas.height = Math.max(1, Math.round(rect.height));
-}
-window.addEventListener("resize", resizeWaveformCanvas);
-
 function applyModeVisibility() {
+  // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada
+  // yalnizca Gelismis Mod'un ek teknik panelleri ac/kapa edilir.
   els.hudSimple.hidden = !state.simpleMode;
   els.hudAdvanced.hidden = state.simpleMode;
-  if (state.simpleMode) resizeWaveformCanvas();
 }
 
 function applyThemeUI() {
@@ -183,6 +176,7 @@ function setTonalSelection(value, { keepGenre = false } = {}) {
     chordRevision: state.music.chordRevision,
   });
 
+  state.tonalDisplayName = resolved.displayName;
   if (els.optTonal) els.optTonal.value = value;
   if (els.simpleTonalBadge) {
     els.simpleTonalBadge.textContent =
@@ -472,6 +466,47 @@ function createSynthActions(state) {
 const synthActions = createSynthActions(state);
 const gestureController = new GestureController(state, synthActions);
 
+// Canvas HUD'un ihtiyaci olan tum bilgiyi tek bir nesnede toplar.
+function buildHudView() {
+  const camOnline = state.cameraStatus === "ONLINE";
+  const audioOnline = state.audioStatus === "ONLINE";
+  const ordered = [...state.activeLayers].sort(
+    (a, b) => (LAYER_KEY_BY_NAME[a] || "~").localeCompare(LAYER_KEY_BY_NAME[b] || "~")
+  );
+  const genre = getGenre(state.genreId);
+  let recordTime = "0:00";
+  if (recorder && recorder.recording) {
+    const total = Math.floor(recorder.elapsedSeconds);
+    recordTime = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
+  return {
+    chordName: state.music.chordName && state.music.chordName !== "--"
+      ? state.music.chordName
+      : state.tonalDisplayName,
+    bpm: state.music.bpm,
+    tonalSystem: state.music.tonalSystem,
+    tonalBadge: state.music.tonalSystem === "makam"
+      ? (state.tonalDisplayName || "MAKAM").toUpperCase()
+      : "BATI",
+    noteName: state.pitch.voiced ? state.pitch.noteName : "--",
+    frequency: state.pitch.frequency || 0,
+    voiced: !!state.pitch.voiced,
+    ready: camOnline && audioOnline,
+    statusLabel: camOnline && audioOnline
+      ? "Hazır"
+      : !camOnline
+      ? "Kamera bekleniyor"
+      : "Ses bekleniyor",
+    gesture: state.gesture,
+    gestureDetail: state.gestureDetail,
+    instruments: ordered.map((l) => LAYER_LABEL_BY_NAME[l] || l),
+    genreLabel: genre ? genre.label : "Serbest mod",
+    waveform: state.waveform,
+    recording: !!(recorder && recorder.recording),
+    recordTime,
+  };
+}
+
 function updateHudLive() {
   const camOnline = state.cameraStatus === "ONLINE";
   const audioOnline = state.audioStatus === "ONLINE";
@@ -545,7 +580,7 @@ function tick() {
   const t = now / 1000;
 
   let packets = [];
-  if (DEMO_MODE) {
+  if (DEMO_MODE && demoSource) {
     drawDemoBackground(ctx, CAM_WIDTH, CAM_HEIGHT, t);
     packets = demoSource.next();
     state.cameraStatus = "ONLINE";
@@ -566,11 +601,10 @@ function tick() {
   gestureController.update(packets);
   const theme = getTheme(state.themeIndex);
   drawHandSkeletons(ctx, packets, theme);
-  updateHudLive();
   updateRecordingBadge();
-  if (state.simpleMode) {
-    drawSideWaveform(waveformCtx, state.waveform, theme, els.simpleWaveformCanvas.width, els.simpleWaveformCanvas.height);
-  }
+  // Bilgi panelleri canvas'a cizilir -> hem ekranda hem de kayitta gorunur.
+  drawCanvasHud(ctx, buildHudView(), theme, CAM_WIDTH, CAM_HEIGHT);
+  updateHudLive();
 
   frameCount += 1;
   if (now - fpsWindowStart > 1000) {
@@ -646,7 +680,6 @@ function bootstrap() {
   applyThemeUI();
   applyModeVisibility();
   renderGuide();
-  resizeWaveformCanvas();
   populateTonalSelect();
   populateGenreSelect();
   renderInstrumentGrid();
