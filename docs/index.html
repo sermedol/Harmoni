@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Harmoni — El hareketiyle canli orkestra eslgi</title>
+<meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="styles/theme.css" />
+<link rel="stylesheet" href="styles/layout.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <div class="stage">
+      <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
+      <canvas id="scene-canvas" class="scene-canvas"></canvas>
+
+      <div id="hud-simple" class="hud-simple" hidden>
+        <div class="chord-card soft-card" id="simple-chord-card">
+          <div class="card-label">ESLIK</div>
+          <div class="chord-name" id="simple-chord-name">--</div>
+          <div class="chord-detail" id="simple-chord-detail">-- BPM</div>
+          <div class="tonal-badge pill" id="simple-tonal-badge">BATI</div>
+        </div>
+        <div class="note-card soft-card" id="simple-note-card">
+          <div class="card-label">SESIN</div>
+          <div class="note-name" id="simple-note-name">--</div>
+        </div>
+        <div class="status-dot-row" id="simple-status-row">
+          <span class="status-dot" id="simple-status-dot"></span>
+          <span class="status-label" id="simple-status-label">Kamera bekleniyor</span>
+        </div>
+        <div class="instrument-strip soft-card" id="simple-instrument-strip">
+          <div class="card-label">CALAN ENSTRUMANLAR</div>
+          <div class="instrument-row" id="simple-instrument-row">Sessiz</div>
+        </div>
+        <div class="mode-hint" id="simple-mode-hint">Gelismis gorunum: Tab | Kilavuz: /</div>
+      </div>
+
+      <!-- Dalga formu ve secenekler paneli her iki gorunumde de erisilebilir
+           olsun diye HUD'larin disinda, sahne seviyesinde durur. -->
+      <canvas id="simple-waveform-canvas" class="simple-waveform-canvas"></canvas>
+
+      <div class="rec-badge" id="rec-badge" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
+
+      <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekler">☰</button>
+
+      <div class="options-panel soft-card" id="options-panel">
+          <div class="panel-title">
+            <span>Seçenekler</span>
+            <button class="panel-close" id="panel-close" aria-label="Kapat">×</button>
+          </div>
+
+          <label class="option-row">
+            <span>Müzik türü</span>
+            <!-- genres.js tarafindan doldurulur -->
+            <select id="opt-genre"></select>
+          </label>
+          <div class="option-hint" id="opt-genre-hint"></div>
+
+          <label class="option-row">
+            <span>Makam / Dizi</span>
+            <!-- tonal-systems.js tarafindan doldurulur -->
+            <select id="opt-tonal"></select>
+          </label>
+
+          <label class="option-row">
+            <span>Eşlik sesi <b id="opt-volume-value">30%</b></span>
+            <input type="range" id="opt-volume" min="8" max="46" value="30" />
+          </label>
+
+          <label class="option-row">
+            <span>Tempo <b id="opt-bpm-value">96</b> BPM</span>
+            <input type="range" id="opt-bpm" min="50" max="160" value="96" />
+          </label>
+
+          <div class="option-divider"></div>
+
+          <div class="option-row"><span>Orkestra</span></div>
+          <div class="instrument-grid" id="instrument-grid"></div>
+          <div class="option-button-row">
+            <button class="option-button compact" id="opt-full-orchestra">Tümü</button>
+            <button class="option-button compact" id="opt-mute">Yalnız piyano</button>
+          </div>
+
+          <div class="option-divider"></div>
+
+          <button class="option-button record" id="opt-record">● Kayıt başlat</button>
+          <label class="option-row">
+            <span>Tema</span>
+            <select id="opt-theme">
+              <option value="0">Midnight</option>
+              <option value="1">Studio</option>
+              <option value="2">Anadolu</option>
+              <option value="3">Daylight</option>
+            </select>
+          </label>
+          <button class="option-button" id="opt-monitor-toggle">Mikrofon: Açık</button>
+          <button class="option-button" id="opt-mode-toggle">Gelişmiş görünüm</button>
+          <button class="option-button" id="opt-guide">Kılavuz (/)</button>
+      </div>
+
+      <div id="hud-advanced" class="hud-advanced" hidden>
+        <div class="adv-row adv-header-row">
+          <div class="soft-card adv-header">
+            <div class="brand">HARMONI</div>
+            <div class="sub" id="adv-version">v0.1 web | tema Midnight</div>
+          </div>
+          <div class="soft-card adv-music-card">
+            <div class="card-label">SU ANKI ESLIK</div>
+            <div class="music-row">
+              <span class="chord-name" id="adv-chord-name">--</span>
+              <span class="chord-func" id="adv-chord-func">--</span>
+              <span class="chord-bpm" id="adv-chord-bpm">-- BPM</span>
+              <span class="chord-note" id="adv-chord-note">--</span>
+            </div>
+            <div class="tonal-badge pill" id="adv-tonal-badge">BATI</div>
+          </div>
+          <div class="soft-card adv-status-card">
+            <div class="status-line" id="adv-status-line">Dinliyor ve eslik ediyor</div>
+            <div class="status-sub" id="adv-status-sub">kamera 0fps  el 0fps  gecikme 0ms</div>
+          </div>
+        </div>
+
+        <div class="adv-row adv-mid-row">
+          <div class="soft-card adv-vocal-card">
+            <div class="card-label">VOKAL</div>
+            <div class="vocal-note" id="adv-vocal-note">--</div>
+            <div class="vocal-hz" id="adv-vocal-hz">0.0 Hz  +0.0 cent</div>
+            <div class="meter-row"><span>NOTA NETLIGI</span><div class="led-meter" id="adv-confidence-meter"></div></div>
+            <div class="meter-row"><span>SES SEVIYESI</span><div class="led-meter" id="adv-level-meter"></div></div>
+            <div class="key-row" id="adv-key-row">-- / --</div>
+            <div class="pill" id="adv-reverb-pill">Reverb %0</div>
+          </div>
+          <div class="adv-orchestra-card soft-card">
+            <div class="card-label">ORKESTRA (12 KATMAN)</div>
+            <div class="arranger-status" id="adv-arranger-status">Otomatik duzenleme (A ile kapat)</div>
+            <div class="orchestra-grid" id="adv-orchestra-grid"></div>
+            <div class="gesture-row" id="adv-gesture-row">HAREKET IZLENIYOR</div>
+            <div class="meter-row"><span>PARLAKLIK</span><div class="led-meter" id="adv-brightness-meter"></div></div>
+            <div class="meter-row"><span>LEGATO</span><div class="led-meter" id="adv-articulation-meter"></div></div>
+          </div>
+        </div>
+
+        <div class="adv-row adv-bottom-row">
+          <div class="soft-card adv-bottom-deck">
+            <canvas id="waveform-canvas" class="waveform-canvas"></canvas>
+            <canvas id="spectrum-canvas" class="spectrum-canvas"></canvas>
+            <canvas id="keyboard-canvas" class="keyboard-canvas"></canvas>
+          </div>
+        </div>
+        <div class="mode-hint" id="advanced-mode-hint">Basit gorunum: Tab | Kilavuz: /</div>
+      </div>
+
+      <div id="camera-error-overlay" class="camera-error-overlay" hidden>
+        <div class="camera-error-panel soft-card">
+          <div class="camera-error-icon">📷</div>
+          <h2 id="camera-error-title">Kamera baslatilamadi</h2>
+          <p id="camera-error-detail">-</p>
+          <button id="camera-retry-button" class="start-button">Tekrar dene</button>
+        </div>
+      </div>
+
+      <div id="guide-overlay" class="guide-overlay" hidden>
+        <div class="guide-panel soft-card">
+          <h2>Harmoni Kullanim Kilavuzu</h2>
+          <div id="guide-gestures"></div>
+          <div id="guide-keys"></div>
+          <div class="guide-hint">Kapatmak icin / veya Esc</div>
+        </div>
+      </div>
+
+      <div id="start-overlay" class="start-overlay">
+        <div class="start-panel soft-card">
+          <h1>Harmoni</h1>
+          <p>Kamera ve mikrofon erisimi ile el hareketleriyle kontrol edilen canli orkestra eslgi.</p>
+          <button id="start-button" class="start-button">Basla</button>
+          <p class="start-note">Tarayicinin kamera/mikrofon izni istemesi normaldir.</p>
+        </div>
+      </div>
+    </div>
+
+    <pre id="debug-log" class="debug-log" hidden></pre>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

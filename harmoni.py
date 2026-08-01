@@ -39,6 +39,7 @@ Onemli:
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import queue
@@ -46,6 +47,7 @@ import random
 import sys
 import threading
 import time
+import wave
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,6 +76,27 @@ except Exception as exc:  # pragma: no cover - donanim/kurulum bagimliligi
     SOUNDDEVICE_AVAILABLE = False
     SOUNDDEVICE_IMPORT_ERROR = exc
 
+try:
+    from scipy.signal import lfilter
+    SCIPY_AVAILABLE = True
+except Exception:  # pragma: no cover - opsiyonel bagimlilik
+    lfilter = None
+    SCIPY_AVAILABLE = False
+
+try:
+    import mido
+    MIDO_AVAILABLE = True
+except Exception:  # pragma: no cover - opsiyonel bagimlilik
+    mido = None
+    MIDO_AVAILABLE = False
+
+try:
+    import fluidsynth as _fluidsynth_module  # pyfluidsynth
+    FLUIDSYNTH_AVAILABLE = True
+except Exception:  # pragma: no cover - opsiyonel bagimlilik
+    _fluidsynth_module = None
+    FLUIDSYNTH_AVAILABLE = False
+
 
 # -----------------------------------------------------------------------------
 # SABITLER
@@ -88,12 +111,74 @@ CAM_CAPTURE_HEIGHT = 540
 HAND_PROCESS_WIDTH = 512
 MAX_HANDS = 2
 
+# Kameradan istenecek yakalama cozunurlugu (--resolution). HUD/arayuz her
+# zaman CAM_WIDTH x CAM_HEIGHT (1280x720) uzerinde bilesimlenir (bu, ~20
+# cizim metodunda test edilmis sabit bir tasarim cozunurlugudur); daha
+# yuksek bir yakalama cozunurlugu istemek, el takibi ve nihai 720p goruntu
+# icin daha fazla kaynak detayindan (supersampling) faydalanir, ancak nihai
+# pencere/kayit boyutunu buyutmez. Pencerenin kendisini native 4K yapmak,
+# tum HUD koordinatlarinin olcekli yeniden yazilmasini gerektiren ayri ve
+# daha buyuk bir is olur (bkz. README - Kamera cozunurlugu).
+RESOLUTION_PRESETS: Dict[str, Tuple[int, int]] = {
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "4k": (3840, 2160),
+}
+
 AUDIO_SR = 48_000
 AUDIO_BLOCK = 256
 AUDIO_CHANNELS_IN = 1
 AUDIO_CHANNELS_OUT = 2
 
 OUTPUT_DIR = Path("harmoni_captures")
+# PyInstaller ile derlenmis (frozen) halde __file__ her calistirmada gecici bir
+# cikartma dizinini gosterir; ayarlarin kalici olmasi icin bu durumda
+# sys.executable'in bulundugu klasor kullanilir.
+if getattr(sys, "frozen", False):
+    _APP_DIR = Path(sys.executable).resolve().parent
+else:
+    _APP_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = _APP_DIR / "harmoni_config.json"
+DEFAULT_CONFIG: Dict[str, object] = {
+    "theme_index": 0,
+    "piano_volume": 0.30,
+    "performance": "balanced",
+    "camera_index": 0,
+    "monitor_enabled": True,
+    "mirror": True,
+    "resolution": "",
+    "simple_mode": True,
+}
+
+
+def load_config(path: Optional[Path] = None) -> Dict[str, object]:
+    """Onceki oturumdan kalan ayarlari okur. Dosya yoksa veya bozuksa
+    sessizce varsayilanlara duser; hicbir zaman hata firlatmaz."""
+    target = path or CONFIG_PATH
+    config = dict(DEFAULT_CONFIG)
+    try:
+        if target.is_file():
+            with target.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                for key in DEFAULT_CONFIG:
+                    if key in data:
+                        config[key] = data[key]
+    except Exception:
+        pass
+    return config
+
+
+def save_config(config: Dict[str, object], path: Optional[Path] = None) -> None:
+    """Ayarlari bir sonraki oturum icin kaydeder. Yazma basarisiz olursa
+    (ornegin salt-okunur dizin) sessizce yok sayilir."""
+    target = path or CONFIG_PATH
+    try:
+        payload = {key: config.get(key, DEFAULT_CONFIG[key]) for key in DEFAULT_CONFIG}
+        with target.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
 
 Color = Tuple[int, int, int]  # OpenCV BGR
 Point = Tuple[int, int]
@@ -132,6 +217,114 @@ HAND_CONNECTIONS = [
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 NOTE_NAMES_TR = ["DO", "DO#", "RE", "RE#", "MI", "FA", "FA#", "SOL", "SOL#", "LA", "LA#", "SI"]
 
+# -----------------------------------------------------------------------------
+# TURK MAKAM SISTEMI (AEU 53 KOMA)
+# -----------------------------------------------------------------------------
+#
+# Kaynak: Arel-Ezgi-Uzdilek (AEU) kuramindaki 53 komali oktav bolumlemesi.
+# Sayisal aralik tablolari, Sonic Pi projesinin (sonic-pi-net/sonic-pi, MIT
+# lisansli) GitHub uzerindeki #1705 numarali "Microtonal scales, makams"
+# pull request'inde (kivancguckiran tarafindan) tanimlanan dortlu/besli
+# (tetrachord/pentachord) yapi taslarindan alinmistir. Her deger, bir
+# sonraki perdeye kadar olan koma sayisidir (1 koma = 1200/53 ~= 22.64 cent);
+# yedi aralik toplami tam oktav icin her zaman 53 koma eder.
+#
+# NOT: Bir makam, yalnizca bir perde kumesi (dizi) degildir; "seyir" (melodik
+# ilerleyis), "guclu" (baskin perde) ve "asma karar" gibi performans kurallari
+# da makamin kimligini belirler. Bu tablo yalnizca dizi/perde boyutunu temsil
+# eder; ornegin Neva ve Huseyni ayni ham perde kumesini paylasabilir ama
+# gelenekte seyirleriyle ayrisirlar. Saba makami, kendine has (oktava tam
+# oturmayan) yapisi nedeniyle bu basit dizi modeline uygun olmadigindan
+# kasitli olarak disarida birakilmistir.
+KOMA_CENTS = 1200.0 / 53.0
+
+MAKAM_SCALES_KOMA: Dict[str, Tuple[int, ...]] = {
+    "CARGAH": (9, 9, 4, 9, 9, 9, 4),
+    "BUSELIK": (9, 4, 9, 9, 9, 4, 9),
+    "KURDI": (4, 9, 9, 9, 4, 9, 9),
+    "RAST": (9, 8, 5, 9, 9, 8, 5),
+    "HICAZ": (5, 12, 5, 9, 8, 5, 9),
+    "USSAK": (8, 5, 9, 9, 4, 9, 9),
+    "NIHAVENT": (9, 4, 9, 9, 4, 9, 9),
+    "HUZZAM": (5, 9, 5, 12, 5, 12, 5),
+    "KARCIGAR": (8, 5, 9, 5, 12, 5, 9),
+    "SEGAH": (5, 9, 8, 9, 5, 12, 5),
+    "NEVA": (8, 5, 9, 9, 8, 5, 9),
+    "HUSEYNI": (8, 5, 9, 9, 8, 5, 9),
+}
+
+MAKAM_DISPLAY_NAMES: Dict[str, str] = {
+    # NOT: OpenCV'nin yerleşik Hershey fontu (cv2.putText) Türkçe'ye özgü
+    # ç/ğ/ı/ö/ş/ü ve inceltmeli harfleri düzgün çizemez; bu yüzden ekran
+    # (HUD) metinleri kasıtlı olarak ASCII'dir. Doğru yazımlar (Çargâh,
+    # Hüzzam, Uşşak, Karcığar, Segâh, Nevâ, Hüseynî, Kürdî) README'de yer alır.
+    "CARGAH": "Cargah", "BUSELIK": "Buselik", "KURDI": "Kurdi", "RAST": "Rast",
+    "HICAZ": "Hicaz", "USSAK": "Ussak", "NIHAVENT": "Nihavent", "HUZZAM": "Huzzam",
+    "KARCIGAR": "Karcigar", "SEGAH": "Segah", "NEVA": "Neva", "HUSEYNI": "Huseyni",
+}
+
+
+def komas_to_semitones(komas: float) -> float:
+    return komas * 12.0 / 53.0
+
+
+def frequency_to_koma(frequency: float) -> float:
+    """Frekansi 53 komali surekli bir konuma cevirir (12-TET midi degeriyle ayni olcekte)."""
+    return frequency_to_midi(frequency) * 53.0 / 12.0
+
+
+# Klasik perde adlari, Rast'a gore koma cinsinden konum. Rast=0 referans
+# alinarak rast/hicaz yapi taslarindan (yukaridaki MAKAM_SCALES_KOMA ile ayni
+# kaynak) turetilmistir: Dugah=+9 (Rast dortlusunun ilk adimi), Segah=+17,
+# Cargah=+22, Neva=+31, Huseyni=+40, Evic=+48, Gerdaniye=+53 (Rast'in oktavi).
+# Kaynak (isim<->Bati perdesi karsiligi): turkishudlessons.com/sufi.gen.tr
+# makam nazariyati ozetleri (Rast=Sol, Dugah=La, Cargah=Do, Neva=Re, ...).
+PERDE_NAMES_KOMA: Tuple[Tuple[int, str], ...] = (
+    (-22, "Yegah"),
+    (0, "Rast"),
+    (9, "Dugah"),
+    (17, "Segah"),
+    (22, "Cargah"),
+    (31, "Neva"),
+    (40, "Huseyni"),
+    (48, "Evic"),
+    (53, "Gerdaniye"),
+    (62, "Muhayyer"),
+    (75, "Tiz Cargah"),
+)
+# Rast perdesinin geleneksel/pedagojik yaklasik referansi: G3. Gercek icrada
+# topluluga, bolgeye ve enstrumana gore kesin referans frekans degisir; bu
+# yalnizca egitim amacli goreli bir isimlendirme sunar, mutlak bir standart
+# degildir (bkz. README).
+PERDE_REFERENCE_MIDI = 55.0
+
+
+def nearest_perde_name(frequency: float) -> Tuple[str, float]:
+    """Bir frekansa en yakin klasik perde adini ve o perdeden sapmayi
+    (cent cinsinden, +sarp/-bemol) dondurur."""
+    reference_koma = PERDE_REFERENCE_MIDI * 53.0 / 12.0
+    koma_position = frequency_to_koma(frequency) - reference_koma
+    best_name = "Rast"
+    best_diff = 1e18
+    for koma, name in PERDE_NAMES_KOMA:
+        for octave_k in range(-3, 4):
+            diff = koma_position - (koma + 53 * octave_k)
+            if abs(diff) < abs(best_diff):
+                best_diff = diff
+                best_name = name
+    return best_name, best_diff * KOMA_CENTS
+
+
+def makam_scale_degrees_komas(name: str) -> Tuple[int, ...]:
+    """Tonikten (durak) itibaren 7 perdenin koma cinsinden konumu (0..52)."""
+    intervals = MAKAM_SCALES_KOMA[name]
+    offsets = [0]
+    total = 0
+    for step in intervals[:-1]:
+        total += step
+        offsets.append(total)
+    return tuple(offsets)
+
 
 # -----------------------------------------------------------------------------
 # TEMA VE CIZIM YARDIMCILARI
@@ -151,36 +344,45 @@ class Theme:
     danger: Color
     success: Color
     warning: Color
+    dark: bool = False
 
 
+# Profesyonel stüdyo yazılımlarından (dark-mode DAW arayüzleri) ilham alan
+# temalar. Renkler RGB olarak tasarlanip OpenCV'nin BGR sırasına çevrilmiştir.
+# "dark" bayrağı, kamera görüntüsü tonlamasını ve parlaklık/glow
+# yoğunluğunu temaya göre ayarlamak için kullanılır.
 THEMES: List[Theme] = [
     Theme(
-        "PEARL",
-        (236, 241, 246), (249, 250, 252), (229, 231, 238),
-        (58, 57, 63), (128, 124, 133),
-        (194, 151, 171), (168, 190, 226), (176, 205, 190),
-        (132, 128, 224), (151, 193, 165), (165, 188, 220),
+        "MIDNIGHT",
+        (24, 18, 16), (40, 31, 28), (78, 64, 58),
+        (240, 233, 230), (192, 180, 175),
+        (248, 189, 56), (250, 139, 167), (21, 204, 250),
+        (113, 113, 248), (128, 222, 74), (60, 146, 251),
+        dark=True,
     ),
     Theme(
-        "LILAC",
-        (243, 238, 247), (252, 250, 253), (231, 222, 239),
-        (62, 55, 68), (132, 119, 139),
-        (194, 157, 209), (190, 182, 231), (181, 211, 207),
-        (142, 132, 221), (159, 198, 172), (180, 194, 226),
+        "STUDIO",
+        (17, 18, 20), (27, 29, 32), (52, 58, 64),
+        (225, 235, 240), (170, 180, 190),
+        (11, 158, 245), (66, 113, 251), (191, 212, 45),
+        (68, 68, 239), (53, 230, 163), (21, 204, 250),
+        dark=True,
     ),
     Theme(
-        "PEACH",
-        (238, 243, 248), (252, 251, 249), (229, 226, 235),
-        (67, 59, 57), (137, 126, 123),
-        (173, 188, 234), (192, 211, 239), (182, 207, 196),
-        (139, 137, 220), (154, 195, 165), (177, 194, 224),
+        "ANADOLU",
+        (15, 17, 24), (23, 27, 38), (46, 56, 74),
+        (220, 232, 245), (158, 172, 196),
+        (63, 122, 224), (153, 166, 45), (74, 181, 232),
+        (65, 69, 214), (88, 189, 140), (74, 159, 230),
+        dark=True,
     ),
     Theme(
-        "SAGE",
-        (239, 244, 240), (251, 252, 250), (225, 235, 229),
-        (55, 64, 59), (116, 132, 123),
-        (173, 202, 181), (191, 206, 229), (191, 180, 215),
-        (133, 139, 215), (151, 194, 166), (180, 199, 221),
+        "DAYLIGHT",
+        (248, 246, 245), (255, 255, 255), (234, 229, 226),
+        (40, 33, 30), (128, 116, 110),
+        (229, 70, 79), (233, 165, 14), (6, 119, 217),
+        (38, 38, 220), (74, 163, 22), (4, 138, 202),
+        dark=False,
     ),
 ]
 
@@ -356,6 +558,25 @@ def midi_to_frequency(midi_note: float) -> float:
     return 440.0 * (2.0 ** ((midi_note - 69.0) / 12.0))
 
 
+def one_pole_lowpass(x: np.ndarray, coeff: float, state: float) -> Tuple[np.ndarray, float]:
+    """y[n] = (1-coeff)*x[n] + coeff*y[n-1].
+
+    Gercek-zamanli ses callback'inde guvenlik icin scipy.signal.lfilter
+    kullanir; scipy yoksa fonksiyonel olarak ozdes ama daha yavas bir saf
+    Python dongusune duser.
+    """
+    x64 = np.asarray(x, dtype=np.float64)
+    if SCIPY_AVAILABLE:
+        y, _ = lfilter([1.0 - coeff], [1.0, -coeff], x64, zi=[coeff * state])
+        return y, float(y[-1])
+    y = np.empty_like(x64)
+    acc = state
+    for i in range(len(x64)):
+        acc = (1.0 - coeff) * float(x64[i]) + coeff * acc
+        y[i] = acc
+    return y, acc
+
+
 # -----------------------------------------------------------------------------
 # PAYLASILAN DURUM VE PITCH TAKIBI
 # -----------------------------------------------------------------------------
@@ -386,6 +607,12 @@ class MusicSnapshot:
     vocal_center_midi: float = 57.0
     phrase_active: bool = False
     chord_revision: int = 0
+    tonal_system: str = "western"  # "western" | "makam"
+    makam_name: str = "HICAZ"
+    makam_tonic_koma: int = 38  # durak (tonik) perde sinifi, 0..52 koma
+    makam_confidence: float = 0.0
+    makam_degrees: Tuple[float, ...] = ()
+    rhythm_feel: str = "duz"  # "duz" | "aksak" - kaba bir sezgisel, gercek usul tespiti degil
 
 
 @dataclass
@@ -403,6 +630,9 @@ class RuntimeState:
     active_layers: Set[str] = field(default_factory=lambda: {"PIANO"})
     waveform: np.ndarray = field(default_factory=lambda: np.zeros(256, dtype=np.float32))
     latency_ms: float = 0.0
+    auto_arrange_enabled: bool = True
+    show_guide: bool = False
+    simple_mode: bool = True
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
 
@@ -537,6 +767,10 @@ class PitchTracker(threading.Thread):
 MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
 MINOR_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
+# Batı fonksiyonel armonisinde 7 dizi derecesinin (0=I) kısa etiketleri; egitim
+# amacli HUD gosterimi icindir, ses motorunu etkilemez.
+WESTERN_DEGREE_LABELS = ("Tonik", "II", "III", "Subdominant", "Dominant", "VI", "VII")
+
 
 class HarmonyEngine:
     """Söylenen melodiyi izleyip kararlı, yumuşak bir eşlik üretir.
@@ -548,6 +782,7 @@ class HarmonyEngine:
     def __init__(self, state: RuntimeState) -> None:
         self.state = state
         self.note_weights = np.zeros(12, dtype=np.float64)
+        self.koma_weights = np.zeros(53, dtype=np.float64)
         self.recent_notes: Deque[Tuple[float, int, float, float]] = deque(maxlen=180)
         self.onset_times: Deque[float] = deque(maxlen=16)
         self.last_decay = time.monotonic()
@@ -560,8 +795,35 @@ class HarmonyEngine:
         self.previous_voicing: Optional[Tuple[int, ...]] = None
         self.key_candidate: Optional[Tuple[int, str]] = None
         self.key_candidate_since = 0.0
+        self.makam_candidate: Optional[Tuple[str, int]] = None
+        self.makam_candidate_since = 0.0
+        self.previous_makam_degree: Optional[int] = None
         self.tap_times: Deque[float] = deque(maxlen=8)
         self.started = time.monotonic()
+        self.mode_override: Optional[str] = None
+
+    def toggle_tonal_system(self) -> str:
+        with self.state.lock:
+            new_system = "makam" if self.state.music.tonal_system == "western" else "western"
+            self.state.music.tonal_system = new_system
+        return new_system
+
+    def cycle_mode_color(self) -> str:
+        """Batı sisteminde otomatik majör/minör tespitinin ötesinde, kullanıcının
+        elle Dorian/Mixolydian rengine gecmesini saglar (folk/rock/caz gibi
+        modal muzikler icin). Bu bir otomatik tespit DEGILDIR - kullanicinin
+        bilincli sectigi bir renktir; 'auto'ya donunce otomatik tespit
+        kaldigi yerden devam eder."""
+        order = ["auto", "major", "minor", "dorian", "mixolydian"]
+        current = self.mode_override if self.mode_override in order else "auto"
+        next_choice = order[(order.index(current) + 1) % len(order)]
+        self.mode_override = None if next_choice == "auto" else next_choice
+        if self.mode_override is not None:
+            with self.state.lock:
+                root = self.state.music.key_root
+                self.state.music.mode = self.mode_override
+                self.state.music.key_name = f"{NOTE_NAMES[root]} {self.mode_override.upper()}"
+        return next_choice
 
     def tap_tempo(self) -> float:
         now = time.monotonic()
@@ -588,11 +850,14 @@ class HarmonyEngine:
         elapsed = now - self.last_decay
         self.last_decay = now
         self.note_weights *= math.exp(-elapsed / 10.0)
+        self.koma_weights *= math.exp(-elapsed / 10.0)
 
         if pitch.voiced and pitch.confidence > 0.30 and pitch.timestamp != self.last_pitch_timestamp:
             self.last_pitch_timestamp = pitch.timestamp
             weight = clamp(pitch.confidence, 0.25, 1.0) * clamp(pitch.rms * 18.0, 0.12, 1.0)
             self.note_weights[pitch.midi_note % 12] += weight
+            koma_bin = int(round(frequency_to_koma(pitch.frequency))) % 53
+            self.koma_weights[koma_bin] += weight
             self.recent_notes.append((now, pitch.midi_note, pitch.confidence, pitch.rms))
             if self.last_note is None or abs(pitch.midi_note - self.last_note) >= 1:
                 if now - self.last_note_change > 0.13:
@@ -605,9 +870,15 @@ class HarmonyEngine:
 
         phrase_active = bool(self.recent_notes and now - self.recent_notes[-1][0] < 0.38)
         vocal_center = self._vocal_center()
+        with self.state.lock:
+            tonal_system = self.state.music.tonal_system
         if now - self.last_key_update > 0.55:
-            self._estimate_key(now)
+            if tonal_system == "makam":
+                self._estimate_makam(now)
+            else:
+                self._estimate_key(now)
             self._estimate_tempo()
+            self._estimate_rhythm_feel()
             self.last_key_update = now
 
         with self.state.lock:
@@ -616,14 +887,20 @@ class HarmonyEngine:
             self.state.music.phrase_active = phrase_active
             self.state.music.vocal_center_midi = vocal_center
 
-        # Akor değişimi iki vuruşta bir değerlendirilir. Melodi mevcut akora
-        # oturuyorsa dört vuruşa kadar korunur.
+        # Akor/derece değişimi iki vuruşta bir değerlendirilir. Melodi mevcut
+        # akora/dereceye oturuyorsa dört vuruşa kadar korunur.
         beat_seconds = 60.0 / max(bpm, 1.0)
         minimum_interval = beat_seconds * 2.0
-        current_fits = self._current_chord_fits(pitch)
+        if tonal_system == "makam":
+            current_fits = self._current_makam_fits(pitch)
+        else:
+            current_fits = self._current_chord_fits(pitch)
         desired_interval = beat_seconds * (4.0 if current_fits else 2.0)
         if now - self.last_chord_change >= max(minimum_interval, desired_interval):
-            self._choose_chord(pitch)
+            if tonal_system == "makam":
+                self._choose_makam_degree(pitch)
+            else:
+                self._choose_chord(pitch)
             self.last_chord_change = now
 
     def _vocal_center(self) -> float:
@@ -654,7 +931,32 @@ class HarmonyEngine:
             with self.state.lock:
                 self.state.music.bpm = lerp(current, estimated, 0.10)
 
+    def _estimate_rhythm_feel(self) -> None:
+        """Nota baslangic araliklarinin degiskenligine bakarak kaba bir
+        'aksak' (duzensiz, orn. 7/8-9/8 gibi Anadolu ritimleri) / 'duz'
+        (duzenli) ayrimi yapar. Bu gercek bir usul/meter tespiti degildir;
+        yalnizca AutoArranger'in enstrumantasyon secimine yon vermesi icin
+        kullanilan bir sezgiseldir (bkz. README)."""
+        if len(self.onset_times) < 7:
+            return
+        intervals = np.diff(np.asarray(self.onset_times, dtype=np.float64))
+        intervals = intervals[(intervals >= 0.15) & (intervals <= 1.6)]
+        if intervals.size < 6:
+            return
+        median = float(np.median(intervals))
+        if median <= 1e-6:
+            return
+        normalized = intervals / median
+        variability = float(np.std(normalized))
+        feel = "aksak" if variability > 0.32 else "duz"
+        with self.state.lock:
+            self.state.music.rhythm_feel = feel
+
     def _estimate_key(self, now: float) -> None:
+        if self.mode_override is not None:
+            # Kullanici 'D' ile bir dizi rengini (dorian/mixolydian) kilitlemis;
+            # otomatik tespit devre disi kalir, tonik sabit tutulur.
+            return
         total = float(np.sum(self.note_weights))
         if total < 0.65:
             return
@@ -688,9 +990,118 @@ class HarmonyEngine:
             self.state.music.key_name = f"{NOTE_NAMES[root]} {suffix}"
             self.state.music.key_confidence = confidence
 
+    # Perde onemine gore agirlik: durak (0. derece) ve guclu (4. derece, "5.")
+    # gelenekte bir makamin en yapisal iki perdesidir; bu, Krumhansl-Schmuckler
+    # profillerindeki tonik/dominant agirliklandirmasiyla ayni ilkeye dayanir.
+    # Bu agirliklandirma olmadan, ayni koma coklugunu paylasan mod-benzeri
+    # makamlar (orn. Cargah/Kurdi/Buselik/Nihavent) birbirinden ayrilamaz.
+    _MAKAM_DEGREE_WEIGHTS = (3.0, 1.0, 1.3, 1.5, 2.2, 1.0, 1.4)
+
+    def _estimate_makam(self, now: float) -> None:
+        """53 komali koma-chroma'yi her makamin 7 perdelik agirlikli profiliyle
+        karsilastirir (12 makam x 53 olasi durak = 636 aday). Ampirik olcum
+        verisi (SymbTr gibi) yerine durak/guclu agirlikli teorik bir
+        yaklasimdir; bu bilincli bir basitlestirmedir (bkz. README)."""
+        total = float(np.sum(self.koma_weights))
+        if total < 0.65:
+            return
+        chroma53 = self.koma_weights / max(total, 1e-9)
+        best_score = -1e9
+        second_score = -1e9
+        best: Optional[Tuple[str, int]] = None
+        for name in MAKAM_SCALES_KOMA:
+            offsets = makam_scale_degrees_komas(name)
+            profile = np.zeros(53, dtype=np.float64)
+            for idx, offset in enumerate(offsets):
+                profile[offset] = self._MAKAM_DEGREE_WEIGHTS[idx]
+            for tonic in range(53):
+                score = float(np.dot(chroma53, np.roll(profile, tonic)))
+                if score > best_score:
+                    second_score = best_score
+                    best_score = score
+                    best = (name, tonic)
+                elif score > second_score:
+                    second_score = score
+        if best is None:
+            return
+        name, tonic = best
+        confidence = clamp((best_score - second_score + 0.05) / 0.20, 0.0, 1.0)
+        candidate = (name, tonic)
+        with self.state.lock:
+            current = (self.state.music.makam_name, self.state.music.makam_tonic_koma)
+        if candidate != current:
+            if self.makam_candidate != candidate:
+                self.makam_candidate = candidate
+                self.makam_candidate_since = now
+                return
+            if confidence < 0.22 or now - self.makam_candidate_since < 2.2:
+                return
+        with self.state.lock:
+            self.state.music.makam_name = name
+            self.state.music.makam_tonic_koma = tonic
+            self.state.music.makam_confidence = confidence
+            self.state.music.key_name = f"{MAKAM_DISPLAY_NAMES.get(name, name.title())} Makami"
+
+    def _current_makam_fits(self, pitch: PitchSnapshot) -> bool:
+        if not pitch.voiced:
+            return True
+        with self.state.lock:
+            tonic = self.state.music.makam_tonic_koma
+            name = self.state.music.makam_name
+        offsets = {(tonic + o) % 53 for o in makam_scale_degrees_komas(name)}
+        koma_bin = int(round(frequency_to_koma(pitch.frequency))) % 53
+        return koma_bin in offsets or (koma_bin - 1) % 53 in offsets or (koma_bin + 1) % 53 in offsets
+
+    def _choose_makam_degree(self, pitch: PitchSnapshot) -> None:
+        with self.state.lock:
+            name = self.state.music.makam_name
+            tonic_koma = self.state.music.makam_tonic_koma
+            vocal_center = self.state.music.vocal_center_midi
+        offsets = makam_scale_degrees_komas(name)
+        tonic_pc = komas_to_semitones(tonic_koma)
+        # Toniği vokal merkezinin bir-bir buçuk oktav altına yerleştir; böylece
+        # dron ve eşlik perdeleri her zaman vokalin altında kalır.
+        base_tonic = tonic_pc
+        while base_tonic > vocal_center - 6.0:
+            base_tonic -= 12.0
+        while base_tonic < vocal_center - 24.0:
+            base_tonic += 12.0
+        degree_pitches = tuple(base_tonic + komas_to_semitones(o) for o in offsets)
+
+        melody_koma = int(round(frequency_to_koma(pitch.frequency))) % 53 if pitch.voiced else tonic_koma
+        # En yakin perdeyi (0. derece = durak) melodiye gore sec; guclu (5. derece,
+        # index 4) ve durak (index 0) hafifçe kayirilir (gelenekte bu perdeler
+        # eşliğin agirlik merkezidir).
+        best_degree = 0
+        best_distance = 1e9
+        for idx, offset in enumerate(offsets):
+            koma_pos = (tonic_koma + offset) % 53
+            distance = min((koma_pos - melody_koma) % 53, (melody_koma - koma_pos) % 53)
+            bias = -3.0 if idx in (0, 4) else 0.0
+            score = distance + bias
+            if score < best_distance:
+                best_distance = score
+                best_degree = idx
+
+        changed = best_degree != self.previous_makam_degree
+        self.previous_makam_degree = best_degree
+        tonic_perde, _ = nearest_perde_name(midi_to_frequency(base_tonic))
+        with self.state.lock:
+            self.state.music.makam_degrees = degree_pitches
+            self.state.music.chord_notes = tuple(int(round(p)) for p in (degree_pitches[0], degree_pitches[4], degree_pitches[0] + 12.0))
+            self.state.music.chord_name = f"{MAKAM_DISPLAY_NAMES.get(name, name.title())} - {tonic_perde} ({midi_to_name(int(round(base_tonic)), turkish=True)})"
+            self.state.music.accompaniment_confidence = clamp(1.0 - best_distance / 26.5, 0.0, 1.0)
+            if changed:
+                self.state.music.chord_revision += 1
+
     @staticmethod
     def _scale_intervals(mode: str) -> Sequence[int]:
-        return (0, 2, 4, 5, 7, 9, 11) if mode == "major" else (0, 2, 3, 5, 7, 8, 10)
+        return {
+            "major": (0, 2, 4, 5, 7, 9, 11),
+            "minor": (0, 2, 3, 5, 7, 8, 10),
+            "dorian": (0, 2, 3, 5, 7, 9, 10),
+            "mixolydian": (0, 2, 4, 5, 7, 9, 10),
+        }.get(mode, (0, 2, 3, 5, 7, 8, 10))
 
     def _diatonic_triads(self, root: int, mode: str) -> List[Tuple[str, Tuple[int, int, int], int, int]]:
         scale = self._scale_intervals(mode)
@@ -790,8 +1201,9 @@ class HarmonyEngine:
         changed = voiced != self.previous_voicing
         self.previous_voicing = voiced
         confidence = clamp((best_score + 1.0) / 6.0, 0.0, 1.0)
+        label = WESTERN_DEGREE_LABELS[degree % len(WESTERN_DEGREE_LABELS)]
         with self.state.lock:
-            self.state.music.chord_name = name
+            self.state.music.chord_name = f"{name} - {label}"
             self.state.music.chord_notes = voiced
             self.state.music.accompaniment_confidence = confidence
             if changed:
@@ -815,10 +1227,13 @@ class VocalDSP:
         self.monitor_enabled = True
         self.noise_reduction = 0.30
         self.compression = 0.42
-        self.clarity = 0.15
-        self.warmth = 0.12
-        self.reverb_mix = 0.11
-        self.echo_mix = 0.04
+        # Vokalin daha "guzel"/stüdyo kaydi gibi duyulmasi icin varsayilan
+        # netlik/sicaklik ve hafif reverb+eco biraz yukseltildi (pinch jesti
+        # hala 0.05-0.24 / 0.01-0.095 araliginda ustune kontrol saglar).
+        self.clarity = 0.19
+        self.warmth = 0.17
+        self.reverb_mix = 0.16
+        self.echo_mix = 0.055
         self.output_gain = 0.82
 
         self.low_state = 0.0
@@ -845,15 +1260,11 @@ class VocalDSP:
         if frames == 0:
             return np.zeros((0, 2), dtype=np.float32)
 
-        # Yaklasik 80 Hz high-pass. Tek kutuplu LP cikarimi.
+        # Yaklasik 80 Hz high-pass. Tek kutuplu LP cikarimi, vektorize.
         cutoff = 80.0
         alpha = math.exp(-2.0 * math.pi * cutoff / self.sample_rate)
-        hp = np.empty_like(x)
-        low = self.low_state
-        for i, sample in enumerate(x):
-            low = (1.0 - alpha) * float(sample) + alpha * low
-            hp[i] = float(sample) - low
-        self.low_state = low
+        low, self.low_state = one_pole_lowpass(x, alpha, self.low_state)
+        hp = x.astype(np.float64) - low
 
         rms = float(np.sqrt(np.mean(hp * hp) + 1e-12))
         gate_threshold = lerp(0.0018, 0.010, self.noise_reduction)
@@ -896,20 +1307,11 @@ class VocalDSP:
         echo_l = self.delay_l[(idx - self.echo_samples) % self.delay_size]
         echo_r = self.delay_r[(idx - int(self.echo_samples * 1.07)) % self.delay_size]
 
-        # Geri beslemeyi hafif low-pass ile yumusat.
+        # Geri beslemeyi hafif low-pass ile yumusat (vektorize).
         feedback_l = 0.36 * wet_l + 0.09 * echo_l
         feedback_r = 0.36 * wet_r + 0.09 * echo_r
-        smooth_l = np.empty_like(feedback_l)
-        smooth_r = np.empty_like(feedback_r)
-        lp_l = self.feedback_lpf_l
-        lp_r = self.feedback_lpf_r
-        for i in range(frames):
-            lp_l = 0.23 * float(feedback_l[i]) + 0.77 * lp_l
-            lp_r = 0.23 * float(feedback_r[i]) + 0.77 * lp_r
-            smooth_l[i] = lp_l
-            smooth_r[i] = lp_r
-        self.feedback_lpf_l = lp_l
-        self.feedback_lpf_r = lp_r
+        smooth_l, self.feedback_lpf_l = one_pole_lowpass(feedback_l, 0.77, self.feedback_lpf_l)
+        smooth_r, self.feedback_lpf_r = one_pole_lowpass(feedback_r, 0.77, self.feedback_lpf_r)
 
         self.delay_l[idx] = np.clip(clean + smooth_r, -1.2, 1.2)
         self.delay_r[idx] = np.clip(clean + smooth_l, -1.2, 1.2)
@@ -929,7 +1331,7 @@ class VocalDSP:
 
 @dataclass
 class Voice:
-    midi_note: int
+    midi_note: float
     kind: str
     velocity: float
     duration_samples: int
@@ -937,6 +1339,112 @@ class Voice:
     phase: float = 0.0
     age_samples: int = 0
     seed: int = 0
+    ks_buffer: Optional[np.ndarray] = None  # Karplus-Strong (baglama) gecikme hatti
+    ks_pos: int = 0
+
+
+class FluidSynthBackend:
+    """Opsiyonel gercek soundfont (.sf2) render motoru.
+
+    yalnizca `pyfluidsynth` kurulu VE gecerli bir soundfont dosyasi
+    `--soundfont` ile verildiginde etkinlesir. Herhangi bir asamada
+    basarisiz olursa `self.available = False` kalir ve cagiran taraf
+    (SynthEngine) sessizce procedural sentezlemeye devam eder.
+    """
+
+    PROGRAMS: Dict[str, Tuple[int, int]] = {
+        "piano": (0, 0),
+        "piano_soft": (0, 0),
+        "strings": (1, 48),
+        "pad": (2, 89),
+        "bass": (3, 33),
+        "baglama": (4, 104),  # GM Sitar; bağlamanın telli/perdeli karakterine en yakın GM sesi
+        "flute": (5, 73),     # GM Flute
+        "brass": (6, 61),     # GM Brass Section
+        "ney": (7, 75),       # GM Pan Flute; ney'e en yakın nefesli GM sesi
+        "guitar": (8, 25),    # GM Acoustic Guitar (steel)
+        "keman": (10, 40),    # GM Violin (kanal 9 davul icin ayrilmis, atlaniyor)
+    }
+    DRUM_CHANNEL = 9
+    DRUM_NOTES: Dict[str, int] = {"kick": 36, "snare": 38, "hat": 42}
+
+    def __init__(self, soundfont_path: str, sample_rate: int = AUDIO_SR) -> None:
+        self.available = False
+        self.error = ""
+        self.synth = None
+        if not FLUIDSYNTH_AVAILABLE:
+            self.error = "pyfluidsynth kurulu degil (pip install pyfluidsynth)"
+            return
+        if not Path(soundfont_path).is_file():
+            self.error = f"Soundfont dosyasi bulunamadi: {soundfont_path}"
+            return
+        try:
+            self.synth = _fluidsynth_module.Synth(samplerate=float(sample_rate))
+            sfid = self.synth.sfload(soundfont_path)
+            if sfid == -1:
+                raise RuntimeError("Soundfont yuklenemedi (sfload -1 dondu)")
+            for channel, program in self.PROGRAMS.values():
+                self.synth.program_select(channel, sfid, 0, program)
+            self.synth.program_select(self.DRUM_CHANNEL, sfid, 128, 0)
+            self.available = True
+        except Exception as exc:  # pragma: no cover - native kutuphane bagimliligi
+            self.error = str(exc)
+            self.synth = None
+            self.available = False
+
+    def note_on(self, kind: str, midi_note: int, velocity: float) -> None:
+        if not self.available or self.synth is None:
+            return
+        vel = int(clamp(velocity, 0.0, 1.0) * 127)
+        if vel <= 0:
+            return
+        note = int(clamp(midi_note, 0, 127))
+        try:
+            if kind in self.DRUM_NOTES:
+                self.synth.noteon(self.DRUM_CHANNEL, self.DRUM_NOTES[kind], vel)
+            elif kind == "davul":
+                # Procedural synth'te "davul" dusuk/yuksek notaya gore dum/tek
+                # sesi secer; GM davul kanalinda da ayni nota degeri kullanilir
+                # (yaklasik esdeger: 40~Electric Snare, 64~Low Conga).
+                self.synth.noteon(self.DRUM_CHANNEL, note, vel)
+            else:
+                channel, _ = self.PROGRAMS.get(kind, (0, 0))
+                self.synth.noteon(channel, note, vel)
+        except Exception:  # pragma: no cover - native kutuphane bagimliligi
+            pass
+
+    def note_off(self, kind: str, midi_note: int) -> None:
+        if not self.available or self.synth is None:
+            return
+        note = int(clamp(midi_note, 0, 127))
+        try:
+            if kind in self.DRUM_NOTES:
+                self.synth.noteoff(self.DRUM_CHANNEL, self.DRUM_NOTES[kind])
+            elif kind == "davul":
+                self.synth.noteoff(self.DRUM_CHANNEL, note)
+            else:
+                channel, _ = self.PROGRAMS.get(kind, (0, 0))
+                self.synth.noteoff(channel, note)
+        except Exception:  # pragma: no cover - native kutuphane bagimliligi
+            pass
+
+    def render(self, frames: int) -> np.ndarray:
+        if not self.available or self.synth is None:
+            return np.zeros((frames, 2), dtype=np.float32)
+        try:
+            raw = np.asarray(self.synth.get_samples(frames), dtype=np.float32) / 32768.0
+            stereo = raw.reshape(-1, 2)
+        except Exception:  # pragma: no cover - native kutuphane bagimliligi
+            return np.zeros((frames, 2), dtype=np.float32)
+        return np.clip(stereo, -1.0, 1.0).astype(np.float32)
+
+    def close(self) -> None:
+        if self.synth is not None:
+            try:
+                self.synth.delete()
+            except Exception:
+                pass
+            self.synth = None
 
 
 class SynthEngine:
@@ -949,15 +1457,57 @@ class SynthEngine:
         self.voice_lock = threading.RLock()
         self.step_index = 0
         self.samples_to_step = 0.0
-        self.music_gain = 0.27
+        self.music_gain = 0.30
         self.density = 0.38
         self.duck_gain = 0.62
         self.last_chord_revision = -1
         self.max_voices = 44
+        self.brightness = 1.0  # 0..1, jestle kontrol edilir (el aciklik derecesi)
+        self._bright_state_l = 0.0
+        self._bright_state_r = 0.0
+        self.articulation = 0.5  # 0..1, jestle kontrol edilir (staccato..legato)
+        self.fluid: Optional[FluidSynthBackend] = None
+        self.pending_note_offs: List[Tuple[int, str, int]] = []
+        self.midi_recording = False
+        self.midi_events: List[Tuple[float, str, int, float, float]] = []
+        self.midi_record_start = 0.0
+
+        # Orkestra icin hafif, paylasilan bir "oda" reverb'i: vokal ve eslik
+        # ayni akustik alanda gibi hissettirir, sentetik/kuru bir katman
+        # olmaktan cikarir. VocalDSP'nin reverb yaklasimiyla ayni (vektorize,
+        # gercek-zamanli guvenli) mimariyi kullanir.
+        self.reverb_mix = 0.15
+        self.reverb_size = int(sample_rate * 0.55)
+        self.reverb_l = np.zeros(self.reverb_size, dtype=np.float32)
+        self.reverb_r = np.zeros(self.reverb_size, dtype=np.float32)
+        self.reverb_pos = 0
+        self.reverb_taps = [int(sample_rate * t) for t in (0.029, 0.061, 0.097, 0.14)]
+        self.reverb_fb_l = 0.0
+        self.reverb_fb_r = 0.0
+
+    def attach_fluidsynth(self, backend: "FluidSynthBackend") -> None:
+        self.fluid = backend
+
+    def start_midi_capture(self) -> None:
+        with self.voice_lock:
+            self.midi_events = []
+            self.midi_record_start = time.monotonic()
+            self.midi_recording = True
+
+    def stop_midi_capture(self) -> List[Tuple[float, str, int, float, float]]:
+        with self.voice_lock:
+            self.midi_recording = False
+            events = self.midi_events
+            self.midi_events = []
+        return events
 
     def set_layers(self, layers: Iterable[str]) -> None:
+        # Piyano artik otomatik olarak zorlanmiyor - kullanici P tusuyla onu da
+        # kapatabilir (bkz. handle_key). Tum katmanlar bosalirsa tam sessizlik
+        # yerine piyanoya geri donulur (guvenlik agi).
         with self.state.lock:
-            self.state.active_layers = set(layers) | {"PIANO"}
+            resolved = set(layers)
+            self.state.active_layers = resolved if resolved else {"PIANO"}
 
     def toggle_layer(self, layer: str) -> bool:
         with self.state.lock:
@@ -968,27 +1518,50 @@ class SynthEngine:
             else:
                 layers.add(layer)
                 active = True
-            layers.add("PIANO")
-            self.state.active_layers = layers
+            self.state.active_layers = layers if layers else {"PIANO"}
         return active
 
     def mute_extras(self) -> None:
         self.set_layers({"PIANO"})
 
     def full_orchestra(self) -> None:
-        self.set_layers({"PIANO", "STRINGS", "BASS", "DRUMS", "PAD"})
+        self.set_layers({
+            "PIANO", "STRINGS", "BASS", "DRUMS", "PAD", "BAGLAMA", "WOODWINDS", "BRASS", "NEY",
+            "GITAR", "KEMAN", "DAVUL",
+        })
 
     def adjust_music_gain(self, delta: float) -> float:
         self.music_gain = clamp(self.music_gain + delta, 0.08, 0.46)
         return self.music_gain
 
-    def trigger(self, midi_note: int, kind: str, velocity: float = 0.7, duration: float = 0.8, pan: float = 0.0) -> None:
+    def set_brightness(self, value: float) -> None:
+        """0 = bogucu/karanlik, 1 = tam parlak. El aciklik derecesiyle surekli kontrol edilir."""
+        self.brightness = clamp(value, 0.0, 1.0)
+
+    def set_articulation(self, value: float) -> None:
+        """0 = staccato (kisa, ayrik notalar), 1 = legato (uzun, bagli notalar).
+        El hareket hiziyla surekli kontrol edilir."""
+        self.articulation = clamp(value, 0.0, 1.0)
+
+    def trigger(self, midi_note: float, kind: str, velocity: float = 0.7, duration: float = 0.8, pan: float = 0.0) -> None:
         if velocity <= 0.001:
             return
+        duration_samples = max(64, int(duration * self.sample_rate))
+        if self.midi_recording:
+            onset = time.monotonic() - self.midi_record_start
+            with self.voice_lock:
+                self.midi_events.append((onset, kind, int(round(midi_note)), clamp(velocity, 0.0, 1.0), float(duration)))
+        if self.fluid is not None and self.fluid.available:
+            # FluidSynth/GM standardi 12-TET'tir; mikrotonal perdeler en yakin
+            # yari-sese yuvarlanir (bkz. README - bilinen kisit).
+            self.fluid.note_on(kind, int(round(midi_note)), velocity)
+            with self.voice_lock:
+                self.pending_note_offs.append((duration_samples, kind, int(round(midi_note))))
+            return
         voice = Voice(
-            midi_note=int(midi_note), kind=kind,
+            midi_note=float(midi_note), kind=kind,
             velocity=clamp(velocity, 0.0, 1.0),
-            duration_samples=max(64, int(duration * self.sample_rate)),
+            duration_samples=duration_samples,
             pan=clamp(pan, -1.0, 1.0),
             seed=random.randint(0, 2**31 - 1),
         )
@@ -1001,16 +1574,89 @@ class SynthEngine:
         with self.state.lock:
             music = MusicSnapshot(**vars(self.state.music))
             layers = set(self.state.active_layers)
-        chord = list(music.chord_notes)
-        if not chord:
-            return
         step = self.step_index % 8
         beat_seconds = 60.0 / max(music.bpm, 1.0)
         phrase_active = music.phrase_active
         chord_changed = music.chord_revision != self.last_chord_revision
         if chord_changed:
             self.last_chord_revision = music.chord_revision
+        # Artikülasyon (jestle kontrol edilir) nota süresini staccato<->legato arasında uzatir/kisaltir.
+        articulation_scale = lerp(0.55, 1.4, self.articulation)
 
+        if music.tonal_system == "makam":
+            self._schedule_makam_step(music, layers, step, beat_seconds, phrase_active, chord_changed, articulation_scale)
+        else:
+            self._schedule_western_step(music, layers, step, beat_seconds, phrase_active, chord_changed, articulation_scale)
+        self.step_index += 1
+
+    def _schedule_makam_step(
+        self, music: MusicSnapshot, layers: Set[str], step: int, beat_seconds: float,
+        phrase_active: bool, chord_changed: bool, articulation_scale: float,
+    ) -> None:
+        """Bati'daki blok akor yerine dron (durak+guclu) + bagimsiz melodik
+        cevap figuru: gercek makam icrasindaki heterofonik/dron dokusuna
+        (bkz. README - Kaynaklar) sadik kalmak icin kasitli olarak farklidir."""
+        degrees = music.makam_degrees
+        if not degrees:
+            return
+        tonic = degrees[0]
+        guclu = degrees[4] if len(degrees) > 4 else degrees[-1]
+
+        if chord_changed and step in (0, 4):
+            self.trigger(tonic - 12.0, "pad", 0.13 if phrase_active else 0.19, beat_seconds * 7.4, pan=-0.35)
+            self.trigger(guclu - 12.0, "pad", 0.10 if phrase_active else 0.14, beat_seconds * 7.4, pan=0.35)
+            if "BASS" in layers:
+                self.trigger(tonic - 24.0, "bass", 0.28 if phrase_active else 0.36, beat_seconds * 3.6, pan=-0.05)
+            if "STRINGS" in layers:
+                for note in (tonic, guclu):
+                    self.trigger(note, "strings", 0.11, beat_seconds * 3.6, pan=0.0)
+
+        active_steps = (0, 3, 5) if phrase_active else (0, 1, 3, 4, 5, 6)
+        if step in active_steps:
+            pattern = (0, 2, 1, 4, 3, 2, 1, 0)
+            note = degrees[pattern[step] % len(degrees)]
+            velocity = 0.29 if phrase_active else 0.38
+            self.trigger(note, "baglama", velocity, beat_seconds * 1.1 * articulation_scale, pan=-0.1 + 0.2 * (step / 7.0))
+
+        if "NEY" in layers and step in (2, 6) and not phrase_active:
+            note = degrees[(4 if step == 2 else 2) % len(degrees)]
+            self.trigger(note, "ney", 0.23, beat_seconds * 3.4, pan=-0.15)
+
+        if "WOODWINDS" in layers and chord_changed and step in (0, 4):
+            self.trigger(degrees[-1], "flute", 0.12 if phrase_active else 0.18, beat_seconds * 3.0, pan=0.3)
+
+        if "KEMAN" in layers and step in (1, 5) and not phrase_active:
+            note = degrees[(3 if step == 1 else 1) % len(degrees)]
+            self.trigger(note, "keman", 0.18, beat_seconds * 2.6, pan=0.3)
+
+        if "GITAR" in layers and step in (1, 3, 5, 7):
+            pattern = (1, 3, 2, 0)
+            note = degrees[pattern[(step // 2) % len(pattern)] % len(degrees)]
+            velocity = 0.17 if phrase_active else 0.24
+            self.trigger(note, "guitar", velocity, beat_seconds * 0.9 * articulation_scale, pan=-0.2)
+
+        if "DAVUL" in layers:
+            if step in (0, 4):
+                self.trigger(40.0, "davul", 0.17 if phrase_active else 0.24, 0.35, pan=-0.1)
+            elif step in (2, 6):
+                self.trigger(64.0, "davul", 0.13 if phrase_active else 0.19, 0.12, pan=0.1)
+
+        if "BRASS" in layers and step in (0, 4) and not phrase_active:
+            self.trigger(tonic, "brass", 0.15, beat_seconds * 1.0, pan=0.0)
+            self.trigger(guclu, "brass", 0.13, beat_seconds * 1.0, pan=0.2)
+
+        if "DRUMS" in layers:
+            self.trigger(36, "kick", 0.22 if step in (0, 4) else 0.0, 0.18)
+            if step in (2, 6):
+                self.trigger(38, "snare", 0.15, 0.17)
+
+    def _schedule_western_step(
+        self, music: MusicSnapshot, layers: Set[str], step: int, beat_seconds: float,
+        phrase_active: bool, chord_changed: bool, articulation_scale: float,
+    ) -> None:
+        chord = list(music.chord_notes)
+        if not chord:
+            return
         # Şarkı söylenirken seyrek ve düşük seviyeli; nefes boşluklarında biraz daha dolu.
         if "PIANO" in layers:
             active_steps = (0, 2, 4, 6) if phrase_active else (0, 1, 2, 4, 5, 6)
@@ -1018,21 +1664,49 @@ class SynthEngine:
                 pattern = (0, 1, 2, 1, 0, 2, 1, 2)
                 note = chord[pattern[step] % len(chord)]
                 velocity = 0.30 if phrase_active else 0.38
-                self.trigger(note, "piano", velocity, beat_seconds * 0.68, pan=-0.08 + 0.16 * (step / 7.0))
+                self.trigger(note, "piano", velocity, beat_seconds * 0.68 * articulation_scale, pan=-0.08 + 0.16 * (step / 7.0))
             if chord_changed and step in (0, 4):
                 for idx, n in enumerate(chord):
-                    self.trigger(n, "piano_soft", 0.15 if phrase_active else 0.21, beat_seconds * 1.45, pan=(-0.18 + idx * 0.18))
+                    self.trigger(n, "piano_soft", 0.15 if phrase_active else 0.21, beat_seconds * 1.45 * articulation_scale, pan=(-0.18 + idx * 0.18))
 
         if "BASS" in layers and step in (0, 4):
-            self.trigger(chord[0] - 12, "bass", 0.30 if phrase_active else 0.38, beat_seconds * 0.90, pan=-0.06)
+            self.trigger(chord[0] - 12, "bass", 0.30 if phrase_active else 0.38, beat_seconds * 0.90 * articulation_scale, pan=-0.06)
 
         if "STRINGS" in layers and chord_changed and step in (0, 4):
             for idx, note in enumerate(chord):
-                self.trigger(note, "strings", 0.105, beat_seconds * 3.6, pan=(-0.45 + idx * 0.45))
+                self.trigger(note, "strings", 0.13, beat_seconds * 3.6, pan=(-0.45 + idx * 0.45))
 
         if "PAD" in layers and chord_changed and step in (0, 4):
             for idx, note in enumerate(chord):
-                self.trigger(note - 12, "pad", 0.075, beat_seconds * 3.8, pan=(-0.58 + idx * 0.58))
+                self.trigger(note - 12, "pad", 0.095, beat_seconds * 3.8, pan=(-0.58 + idx * 0.58))
+
+        if "WOODWINDS" in layers and chord_changed and step in (2, 6):
+            self.trigger(chord[-1] + 12, "flute", 0.14 if phrase_active else 0.21, beat_seconds * 3.2, pan=0.25)
+
+        if "BRASS" in layers and step in (0, 4) and not phrase_active:
+            for idx, note in enumerate(chord):
+                self.trigger(note, "brass", 0.17, beat_seconds * 1.1, pan=(-0.3 + idx * 0.3))
+
+        if "BAGLAMA" in layers and step in (1, 3, 5, 7):
+            pattern = (2, 0, 1, 0)
+            note = chord[pattern[(step // 2) % len(pattern)] % len(chord)]
+            velocity = 0.19 if phrase_active else 0.26
+            self.trigger(note, "baglama", velocity, beat_seconds * 0.8 * articulation_scale, pan=0.15)
+
+        if "GITAR" in layers and step in (1, 3, 5, 7):
+            pattern = (1, 2, 0, 1)
+            note = chord[pattern[(step // 2) % len(pattern)] % len(chord)]
+            velocity = 0.17 if phrase_active else 0.23
+            self.trigger(note, "guitar", velocity, beat_seconds * 0.7 * articulation_scale, pan=-0.2)
+
+        if "KEMAN" in layers and chord_changed and step in (2, 6) and not phrase_active:
+            self.trigger(chord[-1] + 12, "keman", 0.17, beat_seconds * 3.0, pan=0.35)
+
+        if "DAVUL" in layers:
+            if step in (0, 4):
+                self.trigger(40.0, "davul", 0.18 if phrase_active else 0.26, 0.35, pan=-0.1)
+            elif step in (2, 6):
+                self.trigger(64.0, "davul", 0.14 if phrase_active else 0.20, 0.12, pan=0.1)
 
         if "DRUMS" in layers:
             self.trigger(36, "kick", 0.24 if step in (0, 4) else 0.0, 0.18)
@@ -1041,13 +1715,12 @@ class SynthEngine:
             if step % 2 == 0:
                 self.trigger(42, "hat", 0.07, 0.08, pan=0.18)
 
-        self.step_index += 1
-
     def render(self, frames: int) -> np.ndarray:
         with self.state.lock:
             bpm = self.state.music.bpm
             vocal_level = self.state.vocal_level
             phrase_active = self.state.music.phrase_active
+            layer_count = len(self.state.active_layers)
         samples_per_step = self.sample_rate * 60.0 / max(bpm, 1.0) / 2.0
         self.samples_to_step -= frames
         while self.samples_to_step <= 0.0:
@@ -1065,11 +1738,91 @@ class SynthEngine:
                     active.append(voice)
             self.voices = active
 
-        # Vokal aktifken piyano otomatik olarak yaklaşık 7-10 dB geri çekilir.
-        target_duck = 0.44 if (phrase_active or vocal_level > 0.009) else 0.74
+            if self.fluid is not None and self.fluid.available and self.pending_note_offs:
+                remaining_offs: List[Tuple[int, str, int]] = []
+                for remaining, kind, note in self.pending_note_offs:
+                    remaining -= frames
+                    if remaining <= 0:
+                        self.fluid.note_off(kind, note)
+                    else:
+                        remaining_offs.append((remaining, kind, note))
+                self.pending_note_offs = remaining_offs
+
+        if self.fluid is not None and self.fluid.available:
+            output = output + self.fluid.render(frames)
+
+        # Vokal aktifken eslik hafifce geri cekilir ama duyulmaya devam eder
+        # ("arkada senfoni" hissi); nefes bosluklarinda tam seviyeye doner.
+        target_duck = 0.62 if (phrase_active or vocal_level > 0.009) else 0.74
         self.duck_gain += (target_duck - self.duck_gain) * 0.12
-        output *= self.music_gain * self.duck_gain
-        return np.clip(output, -0.72, 0.72)
+        # Katman sayisi arttikca (orn. tam orkestra 9 katman) toplam enerji
+        # aritmetik olarak degil sqrt oranla telafi edilir; boylece daha fazla
+        # enstruman acmak sesi vokalin ustune yigmaz. Referans: eski "tam
+        # orkestra" boyutu (5 katman) - bu deger asilmadikca kazanc degismez.
+        gain_compensation = clamp(math.sqrt(5.0 / max(layer_count, 1)), 0.6, 1.0)
+        output *= self.music_gain * self.duck_gain * gain_compensation
+        output = np.clip(output, -0.72, 0.72)
+
+        # El aciklik derecesiyle kontrol edilen parlaklik filtresi (tek kutuplu low-pass).
+        if self.brightness < 0.995:
+            cutoff = lerp(600.0, 17000.0, clamp(self.brightness, 0.0, 1.0) ** 0.55)
+            coeff = math.exp(-2.0 * math.pi * cutoff / self.sample_rate)
+            left, self._bright_state_l = one_pole_lowpass(output[:, 0], coeff, self._bright_state_l)
+            right, self._bright_state_r = one_pole_lowpass(output[:, 1], coeff, self._bright_state_r)
+            output = np.column_stack((left, right))
+        output = self._apply_orchestra_reverb(output)
+        return np.clip(output, -0.72, 0.72).astype(np.float32)
+
+    def _apply_orchestra_reverb(self, stereo: np.ndarray) -> np.ndarray:
+        """Orkestra veriyoluna hafif, paylasilan bir oda reverb'i uygular
+        (VocalDSP.process ile ayni vektorize/gercek-zamanli-guvenli desen)."""
+        frames = stereo.shape[0]
+        if frames == 0 or self.reverb_mix <= 0.001:
+            return stereo
+        idx = (np.arange(frames, dtype=np.int64) + self.reverb_pos) % self.reverb_size
+        wet_l = np.zeros(frames, dtype=np.float64)
+        wet_r = np.zeros(frames, dtype=np.float64)
+        for tap, gain in zip(self.reverb_taps, (0.42, 0.30, 0.20, 0.13)):
+            wet_l += self.reverb_l[(idx - tap) % self.reverb_size] * gain
+            wet_r += self.reverb_r[(idx - tap) % self.reverb_size] * gain
+        feedback_l = 0.30 * wet_l
+        feedback_r = 0.30 * wet_r
+        smooth_l, self.reverb_fb_l = one_pole_lowpass(feedback_l, 0.6, self.reverb_fb_l)
+        smooth_r, self.reverb_fb_r = one_pole_lowpass(feedback_r, 0.6, self.reverb_fb_r)
+        dry_l = stereo[:, 0].astype(np.float64)
+        dry_r = stereo[:, 1].astype(np.float64)
+        self.reverb_l[idx] = np.clip(dry_l + smooth_r, -1.2, 1.2)
+        self.reverb_r[idx] = np.clip(dry_r + smooth_l, -1.2, 1.2)
+        self.reverb_pos = int((self.reverb_pos + frames) % self.reverb_size)
+        out_l = dry_l + wet_l * self.reverb_mix
+        out_r = dry_r + wet_r * self.reverb_mix
+        return np.column_stack((out_l, out_r))
+
+    def _karplus_strong_pluck(
+        self, voice: Voice, frames: int, frequency: float, decay_low: float, decay_high: float, burst_tone: float = 0.5,
+    ) -> np.ndarray:
+        """Tek bir dairesel gecikme hatti (delay line) uzerinde klasik
+        Karplus-Strong yinelemesi; bağlama ve gitar sesleri bunu paylaşır."""
+        if voice.ks_buffer is None:
+            n_delay = max(4, int(round(self.sample_rate / max(frequency, 20.0))))
+            rng = np.random.default_rng(voice.seed)
+            burst = rng.uniform(-1.0, 1.0, size=n_delay).astype(np.float64)
+            burst = burst_tone * burst + (1.0 - burst_tone) * np.concatenate(([0.0], burst[:-1]))
+            voice.ks_buffer = burst
+            voice.ks_pos = 0
+        buffer = voice.ks_buffer
+        n_delay = len(buffer)
+        decay = decay_low if voice.midi_note < 60 else decay_high
+        out = np.empty(frames, dtype=np.float64)
+        pos = voice.ks_pos
+        for i in range(frames):
+            current = buffer[pos]
+            nxt = buffer[(pos + 1) % n_delay]
+            out[i] = current
+            buffer[pos] = decay * 0.5 * (current + nxt)
+            pos = (pos + 1) % n_delay
+        voice.ks_pos = pos
+        return out
 
     def _render_voice(self, voice: Voice, frames: int) -> np.ndarray:
         n = np.arange(frames, dtype=np.float64) + voice.age_samples
@@ -1079,27 +1832,114 @@ class SynthEngine:
         age = n / self.sample_rate
         duration = voice.duration_samples / self.sample_rate
 
+        # Sesin biraz "canli" olmasi icin her ses (voice) kendi sabit seed'inden
+        # turetilen kucuk bir detune degeri tasir; bu, gercek piyano/yaylida
+        # birden fazla telin/oyuncunun hafif uyumsuzlugunu (unison chorus) taklit eder.
+        detune_unit = ((voice.seed % 9973) / 9973.0) - 0.5  # -0.5..0.5
+
         if voice.kind in ("piano", "piano_soft"):
             attack = np.minimum(1.0, age / 0.010)
             decay_rate = 4.1 if voice.kind == "piano" else 2.5
             env = attack * np.exp(-age * decay_rate)
-            signal = (np.sin(phase) + 0.28 * np.sin(phase * 2.01 + 0.2) + 0.10 * np.sin(phase * 3.99 + 0.5)) / 1.38
+            detune_ratio = 2.0 ** ((3.2 * detune_unit) / 1200.0)
+            fundamental = 0.55 * np.sin(phase) + 0.45 * np.sin(phase * detune_ratio)
+            # Hafif inharmonisite: ust kismaller tam katsayidan az saparak gercek
+            # tel gerginligini taklit eder (2.005, 3.99, 6.02 gibi).
+            signal = (
+                fundamental
+                + 0.30 * np.sin(phase * 2.005 + 0.2)
+                + 0.14 * np.sin(phase * 3.99 + 0.5)
+                + 0.06 * np.sin(phase * 6.02 + 0.9)
+            ) / 1.60
+            if voice.kind == "piano":
+                rng = np.random.default_rng(voice.seed + voice.age_samples)
+                hammer_env = np.exp(-age * 600.0)
+                signal = signal + 0.05 * hammer_env * rng.standard_normal(frames)
         elif voice.kind == "bass":
             env = np.minimum(1.0, age / 0.018) * np.exp(-age * 3.0)
-            signal = 0.86 * np.sin(phase) + 0.14 * np.sin(phase * 2.0)
+            raw = 0.86 * np.sin(phase) + 0.14 * np.sin(phase * 2.0)
+            signal = np.tanh(raw * 1.4) / math.tanh(1.4)
         elif voice.kind in ("strings", "pad"):
             attack_time = 0.32 if voice.kind == "strings" else 0.62
             release_time = 0.62
             env = np.minimum(1.0, age / attack_time) * np.minimum(1.0, np.maximum(0.0, duration - age) / release_time)
             vibrato = 0.0025 * np.sin(2.0 * math.pi * 4.8 * t)
+            detune_ratio = 2.0 ** ((5.0 * detune_unit) / 1200.0)
             phase_v = phase + vibrato
-            signal = sum((1.0 / h) * np.sin(phase_v * h) for h in range(1, 5)) / 1.95
+            phase_v2 = phase * detune_ratio + vibrato * 1.08
+            harmonics = sum((1.0 / h) * np.sin(phase_v * h) for h in range(1, 5))
+            harmonics2 = sum((1.0 / h) * np.sin(phase_v2 * h) for h in range(1, 5))
+            signal = (0.6 * harmonics + 0.4 * harmonics2) / 1.95
             if voice.kind == "pad":
                 signal = 0.72 * signal + 0.28 * np.sin(phase * 0.5)
+        elif voice.kind in ("baglama", "guitar"):
+            # Karplus-Strong dijital dalga kilavuzu (physical modeling): bir
+            # gurultu patlamasi, uzunlugu frekansa bagli dairesel bir gecikme
+            # hattinda dolasip her turda hafifce alcak-gecirilerek sonumlenir.
+            # Bkz. README (Kaynaklar) - Karplus & Strong 1983; luciopaiva/karplus.
+            # Gitar, baglamaya gore daha parlak baslangic ve daha uzun sustain
+            # ile (celik tel karakteri) ayni algoritmayi kullanir.
+            if voice.kind == "guitar":
+                decay_low, decay_high, burst_tone = 0.9975, 0.9955, 0.7
+            else:
+                decay_low, decay_high, burst_tone = 0.9965, 0.9935, 0.5
+            signal = self._karplus_strong_pluck(voice, frames, frequency, decay_low, decay_high, burst_tone)
+            env = np.ones(frames, dtype=np.float64)
+        elif voice.kind == "keman":
+            # Keman (yayli, solo): baglamaya/yayli topluluguna gore daha
+            # ifadeli - vibrato zamanla derinlesir (gercek yay teknigi gibi),
+            # hafif yay gurultusu ataktadir.
+            attack_time, release_time = 0.16, 0.4
+            env = np.minimum(1.0, age / attack_time) * np.minimum(1.0, np.maximum(0.0, duration - age) / release_time)
+            vibrato_depth = np.minimum(1.0, age / 0.35) * 0.006
+            vibrato = vibrato_depth * np.sin(2.0 * math.pi * 5.2 * t)
+            phase_v = phase + vibrato
+            rng = np.random.default_rng(voice.seed + voice.age_samples)
+            bow_noise = rng.standard_normal(frames) * 0.02 * np.exp(-age * 12.0)
+            signal = sum((1.0 / h) * np.sin(phase_v * h) for h in range(1, 6)) / 2.28 + bow_noise
+        elif voice.kind == "davul":
+            # Geleneksel buyuk cerceve davulu: dusuk notada derin "dum"
+            # darbesi, yuksek notada keskin "tek" (deynek) sesi.
+            if voice.midi_note >= 60:
+                rng = np.random.default_rng(voice.seed + voice.age_samples)
+                env = np.exp(-age * 60.0)
+                signal = 0.6 * rng.standard_normal(frames) * np.exp(-age * 140.0) + 0.4 * np.sin(2.0 * math.pi * 320.0 * t)
+            else:
+                env = np.exp(-age * 12.0)
+                swept = 2.0 * math.pi * (55.0 * age + 30.0 * (1.0 - np.exp(-age * 10.0)))
+                signal = np.sin(swept)
+        elif voice.kind == "flute":
+            # Tahta uflemeli (woodwind): saf sinuse yakin, hafif nefes gurultulu.
+            attack_time, release_time = 0.12, 0.35
+            env = np.minimum(1.0, age / attack_time) * np.minimum(1.0, np.maximum(0.0, duration - age) / release_time)
+            vibrato = 0.004 * np.sin(2.0 * math.pi * 5.5 * t)
+            phase_v = phase + vibrato
+            rng = np.random.default_rng(voice.seed + voice.age_samples)
+            breath = rng.standard_normal(frames) * 0.045
+            signal = (np.sin(phase_v) + 0.08 * np.sin(phase_v * 2.0) + 0.03 * np.sin(phase_v * 3.0)) / 1.11 + breath
+        elif voice.kind == "brass":
+            # Bakir uflemeli: yavas atakla zenginlesen harmonik yigin + hafif doygunluk.
+            attack_time, release_time = 0.09, 0.28
+            env = np.minimum(1.0, age / attack_time) ** 1.5 * np.minimum(1.0, np.maximum(0.0, duration - age) / release_time)
+            raw = sum((1.0 / h) * np.sin(phase * h) for h in range(1, 7)) / 2.45
+            signal = np.tanh(raw * 1.6) / math.tanh(1.6)
+        elif voice.kind == "ney":
+            # Ney (kaval/nefesli kamis): belirgin nefes sesiyle baslayan, yumusak
+            # surekli tonlu makam nefeslisi.
+            attack_time, release_time = 0.18, 0.5
+            env = np.minimum(1.0, age / attack_time) * np.minimum(1.0, np.maximum(0.0, duration - age) / release_time)
+            rng = np.random.default_rng(voice.seed + voice.age_samples)
+            breath_env = np.exp(-age * 6.0) * 0.35 + 0.06
+            breath = rng.standard_normal(frames) * breath_env
+            vibrato = 0.0035 * np.sin(2.0 * math.pi * 4.2 * t)
+            phase_v = phase + vibrato
+            signal = (np.sin(phase_v) + 0.18 * np.sin(phase_v * 2.0 + 0.3)) / 1.18 + breath
         elif voice.kind == "kick":
             env = np.exp(-age * 23.0)
             swept = 2.0 * math.pi * (50.0 * age + 43.0 * (1.0 - np.exp(-age * 19.0)))
-            signal = np.sin(swept)
+            rng = np.random.default_rng(voice.seed + voice.age_samples)
+            click_env = np.exp(-age * 900.0)
+            signal = np.sin(swept) + 0.18 * click_env * rng.standard_normal(frames)
         elif voice.kind == "snare":
             rng = np.random.default_rng(voice.seed + voice.age_samples)
             env = np.exp(-age * 29.0)
@@ -1113,7 +1953,13 @@ class SynthEngine:
             env = np.exp(-age * 3.0)
             signal = np.sin(phase)
 
-        signal = np.asarray(signal * env * voice.velocity, dtype=np.float32)
+        # Notanin kesildigi ana kisa (~12ms) bir sonme rampasi eklenir; boylece
+        # voice.duration_samples'a ulasildiginda ani kesilme (click/pop) olusmaz.
+        release_samples = max(1.0, 0.012 * self.sample_rate)
+        remaining = voice.duration_samples - n
+        tail_fade = np.clip(remaining / release_samples, 0.0, 1.0)
+
+        signal = np.asarray(signal * env * tail_fade * voice.velocity, dtype=np.float32)
         voice.phase = float((phase[-1] + 2.0 * math.pi * frequency / self.sample_rate) % (2.0 * math.pi))
         voice.age_samples += frames
         left_gain = math.sqrt((1.0 - voice.pan) * 0.5)
@@ -1136,8 +1982,28 @@ class AudioEngine:
         self.running = False
         self.last_callback_time = 0.0
         self.callback_errors: Deque[str] = deque(maxlen=4)
+        self._wav_lock = threading.Lock()
+        self._wav_frames: List[np.ndarray] = []
+        self.wav_recording = False
+        self.consecutive_errors = 0
+        self._low_latency_preference = False
 
-    def start(self) -> bool:
+    def start_wav_capture(self) -> None:
+        with self._wav_lock:
+            self._wav_frames = []
+            self.wav_recording = True
+
+    def stop_wav_capture(self) -> Optional[np.ndarray]:
+        with self._wav_lock:
+            self.wav_recording = False
+            frames = self._wav_frames
+            self._wav_frames = []
+        if not frames:
+            return None
+        return np.concatenate(frames, axis=0)
+
+    def start(self, low_latency: bool = False) -> bool:
+        self._low_latency_preference = low_latency
         if not SOUNDDEVICE_AVAILABLE:
             with self.state.lock:
                 self.state.audio_status = "SOUNDDEVICE YOK"
@@ -1146,18 +2012,45 @@ class AudioEngine:
             return True
         try:
             self.pitch_tracker.start()
-            self.stream = sd.Stream(
-                samplerate=AUDIO_SR,
-                blocksize=AUDIO_BLOCK,
-                dtype="float32",
-                channels=(AUDIO_CHANNELS_IN, AUDIO_CHANNELS_OUT),
-                latency="low",
-                callback=self._callback,
-            )
-            self.stream.start()
+            extra_settings = None
+            used_exclusive = False
+            if low_latency and os.name == "nt" and hasattr(sd, "WasapiSettings"):
+                # WASAPI exclusive modu, Windows'ta paylasimli (shared) moda
+                # gore host tarafindaki ek arabellek gecikmesini büyük olcude
+                # azaltir. Aygit baska bir uygulama tarafindan kullaniliyorsa
+                # veya formati desteklemiyorsa basarisiz olabilir; bu durumda
+                # asagida sessizce paylasimli moda dusulur.
+                try:
+                    extra_settings = sd.WasapiSettings(exclusive=True)
+                except Exception:
+                    extra_settings = None
+            try:
+                self.stream = sd.Stream(
+                    samplerate=AUDIO_SR,
+                    blocksize=AUDIO_BLOCK,
+                    dtype="float32",
+                    channels=(AUDIO_CHANNELS_IN, AUDIO_CHANNELS_OUT),
+                    latency="low",
+                    callback=self._callback,
+                    extra_settings=extra_settings,
+                )
+                self.stream.start()
+                used_exclusive = extra_settings is not None
+            except Exception:
+                if extra_settings is None:
+                    raise
+                self.stream = sd.Stream(
+                    samplerate=AUDIO_SR,
+                    blocksize=AUDIO_BLOCK,
+                    dtype="float32",
+                    channels=(AUDIO_CHANNELS_IN, AUDIO_CHANNELS_OUT),
+                    latency="low",
+                    callback=self._callback,
+                )
+                self.stream.start()
             self.running = True
             with self.state.lock:
-                self.state.audio_status = "MIC + VOCAL FX ONLINE"
+                self.state.audio_status = "MIC + VOCAL FX ONLINE" + (" (WASAPI EXCLUSIVE)" if used_exclusive else "")
             return True
         except Exception as exc:  # pragma: no cover - donanim bagimliligi
             self.callback_errors.append(str(exc))
@@ -1175,6 +2068,8 @@ class AudioEngine:
         except Exception:
             pass
         self.stream = None
+        if self.synth.fluid is not None:
+            self.synth.fluid.close()
 
     def _callback(self, indata, outdata, frames, time_info, status) -> None:  # pragma: no cover - gercek zamanli
         started = time.perf_counter()
@@ -1197,6 +2092,9 @@ class AudioEngine:
             mix = np.tanh(mix * 1.06) / math.tanh(1.06)
             mix = np.clip(mix, -0.96, 0.96).astype(np.float32)
             outdata[:] = mix
+            if self.wav_recording:
+                with self._wav_lock:
+                    self._wav_frames.append(mix.copy())
 
             output_level = float(np.sqrt(np.mean(mix * mix) + 1e-12))
             callback_ms = (time.perf_counter() - started) * 1000.0
@@ -1207,11 +2105,24 @@ class AudioEngine:
                 self.state.latency_ms = callback_ms + AUDIO_BLOCK / AUDIO_SR * 1000.0
                 if status:
                     self.state.audio_status = f"AUDIO WARN: {status}"
+            self.consecutive_errors = 0
         except Exception as exc:
             outdata.fill(0)
             self.callback_errors.append(str(exc))
+            self.consecutive_errors += 1
             with self.state.lock:
                 self.state.audio_status = f"CALLBACK ERROR: {str(exc)[:30]}"
+
+    def restart_if_unhealthy(self, threshold: int = 60) -> bool:
+        """Ust uste cok sayida callback hatasi (ornegin aygit degisimi/uyku
+        sonrasi) sonrasinda ses akisini durdurup yeniden baslatmayi dener."""
+        if self.consecutive_errors < threshold:
+            return False
+        self.consecutive_errors = 0
+        self.stop()
+        # Thread'ler yeniden baslatilamaz; yeni bir PitchTracker orneklenir.
+        self.pitch_tracker = PitchTracker(self.state, self.pitch_tracker.sample_rate)
+        return self.start(low_latency=getattr(self, "_low_latency_preference", False))
 
     def update_harmony(self) -> None:
         with self.state.lock:
@@ -1239,43 +2150,118 @@ class CameraWorker(threading.Thread):
         self.latest: Optional[np.ndarray] = None
         self.frame_id = 0
         self.last_error = ""
+        self.backend_name = ""
         self.opened = threading.Event()
 
+    def _candidate_backends(self) -> List[int]:
+        if os.name == "nt":
+            # DSHOW bazi kameralarda/surucu kombinasyonlarinda acilamiyor veya
+            # kare vermiyor; MSMF ve genel (ANY) sirayla denenir.
+            return [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+        return [cv2.CAP_ANY]
+
     def _open(self) -> bool:
-        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
-        cap = cv2.VideoCapture(self.index, backend)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        cap.set(cv2.CAP_PROP_FPS, self.fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        try:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        except Exception:
-            pass
-        if not cap.isOpened():
-            cap.release()
-            return False
-        self.cap = cap
-        return True
+        # ONEMLI: cozunurluk/FPS/FOURCC gibi ozellikler kamera hicbir kare
+        # vermeden ONCE zorlanirsa, bircok gercek webcam'de (ozellikle DSHOW
+        # ile) kamera tamamen sessiz kalir. Bu yuzden once HICBIR ozellik
+        # degistirmeden kameranin yerel/varsayilan ayarlarla kare verip
+        # vermedigi dogrulanir; yalnizca bu basarili olduktan SONRA cozunurluk
+        # icin en iyi caba (best-effort) bir ayar denenir ve isi bozarsa geri
+        # alinir.
+        last_exc = ""
+        for backend in self._candidate_backends():
+            try:
+                cap = cv2.VideoCapture(self.index, backend)
+                if not cap.isOpened():
+                    cap.release()
+                    continue
+                ok = False
+                for _ in range(8):
+                    ok, frame = cap.read()
+                    if ok and frame is not None:
+                        break
+                    time.sleep(0.05)
+                if not ok:
+                    cap.release()
+                    continue
+
+                try:
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    cap.set(cv2.CAP_PROP_FPS, self.fps)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    still_ok = False
+                    for _ in range(3):
+                        still_ok, _frame = cap.read()
+                        if still_ok:
+                            break
+                        time.sleep(0.05)
+                    if not still_ok:
+                        # Cozunurluk degisikligi kamerayi bozdu (bazi
+                        # webcam'lerde olur); hicbir ozellik zorlamadan
+                        # yeniden ac ve yerel ayarlarla devam et.
+                        cap.release()
+                        cap = cv2.VideoCapture(self.index, backend)
+                        if not cap.isOpened():
+                            continue
+                except Exception:
+                    pass
+
+                self.cap = cap
+                self.backend_name = {
+                    cv2.CAP_DSHOW: "DSHOW", cv2.CAP_MSMF: "MSMF", cv2.CAP_ANY: "ANY",
+                }.get(backend, str(backend))
+                return True
+            except Exception as exc:  # pragma: no cover - donanim/surucu bagimliligi
+                last_exc = str(exc)
+                continue
+        if last_exc:
+            self.last_error = f"Kamera acilamadi ({self.index}): {last_exc}"
+        else:
+            self.last_error = (
+                f"Kamera acilamadi (index {self.index}): hicbir backend kare vermedi. "
+                "Windows Ayarlar > Gizlilik ve guvenlik > Kamera > "
+                "'Uygulamalarin kameraya erismesine izin ver' acik mi kontrol et."
+            )
+        return False
 
     def run(self) -> None:
         if not self._open():
-            self.last_error = "Kamera açılamadı"
+            if not self.last_error:
+                self.last_error = f"Kamera acilamadi (index {self.index})"
             with self.state.lock:
                 self.state.camera_status = "CAMERA ERROR"
             self.opened.set()
             return
         self.opened.set()
         with self.state.lock:
-            self.state.camera_status = "CAMERA ONLINE"
+            self.state.camera_status = f"CAMERA ONLINE ({self.backend_name})"
         count = 0
+        consecutive_failures = 0
         measured_at = time.perf_counter()
         while not self.stop_event.is_set():
             ok, frame = self.cap.read() if self.cap is not None else (False, None)
             if not ok or frame is None:
+                consecutive_failures += 1
                 self.last_error = "Kamera karesi alınamadı"
-                time.sleep(0.01)
+                # ~0.9 saniye ust uste basarisizlik sonrasi cihazi yeniden acmayi dene
+                # (USB kamera cikip takilmasi veya baska bir uygulamanin devralmasi gibi durumlar icin).
+                if consecutive_failures >= 90:
+                    with self.state.lock:
+                        self.state.camera_status = "CAMERA RECONNECTING"
+                    if self.cap is not None:
+                        self.cap.release()
+                        self.cap = None
+                    if self._open():
+                        consecutive_failures = 0
+                        with self.state.lock:
+                            self.state.camera_status = "CAMERA ONLINE"
+                    else:
+                        time.sleep(0.5)
+                else:
+                    time.sleep(0.01)
                 continue
+            consecutive_failures = 0
             with self.lock:
                 self.latest = frame
                 self.frame_id += 1
@@ -1444,7 +2430,13 @@ class GestureController:
         self.last_event: Dict[str, float] = {}
         self.dual_open_since: Optional[float] = None
         self.layer_cursor = 0
-        self.layer_order = ["STRINGS", "PAD", "BASS", "DRUMS"]
+        self.layer_order = [
+            "STRINGS", "PAD", "BASS", "DRUMS", "BAGLAMA", "WOODWINDS", "BRASS", "NEY",
+            "GITAR", "KEMAN", "DAVUL",
+        ]
+        self.last_palm: Dict[str, Tuple[Point, float, float]] = {}
+        self.brightness_smooth = 1.0
+        self.articulation_smooth = 0.5
 
     def _allowed(self, event: str, cooldown: float = 1.1) -> bool:
         now = time.time()
@@ -1454,7 +2446,48 @@ class GestureController:
         self.last_event[event] = now
         return True
 
+    def _update_expression(self, hands: Sequence[HandPacket]) -> None:
+        """El aciklik derecesi ve hareket hizindan surekli (binary olmayan)
+        tonal kontrol turetir: aciklik -> parlaklik, hiz -> artikulasyon."""
+        now = time.time()
+        if not hands:
+            self.brightness_smooth = lerp(self.brightness_smooth, 1.0, 0.05)
+            self.articulation_smooth = lerp(self.articulation_smooth, 0.5, 0.05)
+            self.audio.synth.set_brightness(self.brightness_smooth)
+            self.audio.synth.set_articulation(self.articulation_smooth)
+            self.last_palm.clear()
+            return
+
+        openness_values = [clamp((hand.openness - 0.55) / 0.65, 0.0, 1.0) for hand in hands]
+        target_brightness = lerp(0.15, 1.0, float(np.mean(openness_values)))
+
+        speeds: List[float] = []
+        seen_labels = set()
+        for hand in hands:
+            seen_labels.add(hand.label)
+            previous = self.last_palm.get(hand.label)
+            if previous is not None:
+                prev_point, prev_time, prev_size = previous
+                dt = max(1.0 / 90.0, now - prev_time)
+                speeds.append(dist(hand.palm_center, prev_point) / max(prev_size, 1.0) / dt)
+            self.last_palm[hand.label] = (hand.palm_center, now, hand.hand_size)
+        for label in list(self.last_palm.keys()):
+            if label not in seen_labels:
+                del self.last_palm[label]
+
+        if speeds:
+            speed_norm = clamp(max(speeds) / 3.2, 0.0, 1.0)
+            target_articulation = clamp(1.0 - speed_norm, 0.0, 1.0)
+        else:
+            target_articulation = self.articulation_smooth
+
+        self.brightness_smooth = lerp(self.brightness_smooth, target_brightness, 0.15)
+        self.articulation_smooth = lerp(self.articulation_smooth, target_articulation, 0.15)
+        self.audio.synth.set_brightness(self.brightness_smooth)
+        self.audio.synth.set_articulation(self.articulation_smooth)
+
     def update(self, hands: Sequence[HandPacket]) -> None:
+        self._update_expression(hands)
         if not hands:
             with self.state.lock:
                 self.state.gesture = "SCANNING"
@@ -1539,6 +2572,71 @@ class GestureController:
 
 
 # -----------------------------------------------------------------------------
+# OTOMATIK DUZENLEME (AUTO-ARRANGER)
+# -----------------------------------------------------------------------------
+
+class AutoArranger:
+    """Tonalite sistemi (Bati/Makam), tempo ve ritim hissine (aksak/duz) gore
+    her sarkiya uygun makul bir varsayilan enstruman/katman seti onerir.
+
+    Bu, gercek bir tur/enstruman siniflandirici DEGILDIR (bunun icin ses
+    ozellik cikarimi ve egitilmis bir model gerekir - bkz. README, Kapsam
+    disi birakilanlar). Yalnizca zaten hesaplanan tonal_system/bpm/rhythm_feel
+    degerlerine bakan kural tabanli bir sezgiseldir. Kullanicinin jest ile
+    yaptigi katman degisiklikleri her zaman gecerlidir; bu yalnizca belirgin
+    bir degisim oldugunda (en fazla ~6 saniyede bir) yeni bir taban onerir.
+    """
+
+    def __init__(self, state: RuntimeState, synth: SynthEngine) -> None:
+        self.state = state
+        self.synth = synth
+        self.enabled = True
+        self.last_signature: Optional[Tuple[str, str, str]] = None
+        self.last_applied = 0.0
+
+    def toggle(self) -> bool:
+        self.enabled = not self.enabled
+        if not self.enabled:
+            self.last_signature = None
+        with self.state.lock:
+            self.state.auto_arrange_enabled = self.enabled
+        return self.enabled
+
+    def update(self) -> None:
+        if not self.enabled:
+            return
+        now = time.monotonic()
+        if now - self.last_applied < 6.0:
+            return
+        with self.state.lock:
+            tonal_system = self.state.music.tonal_system
+            bpm = self.state.music.bpm
+            feel = self.state.music.rhythm_feel
+        tempo_bucket = "hizli" if bpm >= 105.0 else ("yavas" if bpm < 80.0 else "orta")
+        signature = (tonal_system, tempo_bucket, feel)
+        if signature == self.last_signature:
+            return
+        self.last_signature = signature
+        self.last_applied = now
+
+        if tonal_system == "makam":
+            if feel == "aksak":
+                # Anadolu rock/halk oyunu havasi: bagimsiz ritim + bas destegi.
+                preset = {"PIANO", "BAGLAMA", "NEY", "BASS", "DRUMS"}
+            else:
+                # Alaturka/klasik/taksim havasi: ritimsiz, dron agirlikli.
+                preset = {"PIANO", "BAGLAMA", "NEY", "PAD"}
+        else:
+            if tempo_bucket == "hizli":
+                preset = {"PIANO", "BASS", "DRUMS", "STRINGS"}
+            elif tempo_bucket == "yavas":
+                preset = {"PIANO", "PAD", "STRINGS"}
+            else:
+                preset = {"PIANO", "BASS", "STRINGS", "PAD"}
+        self.synth.set_layers(preset)
+
+
+# -----------------------------------------------------------------------------
 # HUD RENDERER
 # -----------------------------------------------------------------------------
 
@@ -1569,16 +2667,154 @@ class HUDRenderer:
         self._draw_ambient_wash(img)
         self._draw_hand_skeletons(img, hands)
 
+        with self.state.lock:
+            simple_mode = self.state.simple_mode
         if self.hud_enabled:
-            self._draw_header(img)
-            self._draw_vocal_card(img)
-            self._draw_music_card(img)
-            self._draw_orchestra_card(img)
-            self._draw_bottom_deck(img)
+            if simple_mode:
+                self._draw_simple_hud(img)
+            else:
+                self._draw_header(img)
+                self._draw_music_card(img)
+                self._draw_vocal_card(img)
+                self._draw_orchestra_card(img)
+                self._draw_bottom_deck(img)
+        with self.state.lock:
+            show_guide = self.state.show_guide
+        if show_guide:
+            self._draw_guide_overlay(img)
         return img
+
+    def _draw_simple_hud(self, img: np.ndarray) -> None:
+        """gesturesynth.com'dan ilham alinan minimal 'Basit Mod': kamera
+        goruntusu arayuzun kendisi, ustunde yalnizca en onemli bilgi (su an
+        duyulan nota + eslik) ve alt tarafta hangi enstrumanlarin caldigina
+        dair kompakt bir serit var. Tam gosterge paneli (Gelismis Mod) hicbir
+        sey kaybetmeden `Tab` ile her an acilabilir."""
+        theme = self.theme
+        h, w = img.shape[:2]
+        with self.state.lock:
+            pitch = PitchSnapshot(**vars(self.state.pitch))
+            music = MusicSnapshot(**vars(self.state.music))
+            layers = set(self.state.active_layers)
+            audio_status = self.state.audio_status
+            camera_status = self.state.camera_status
+
+        card_w, card_h = 620, 118
+        cx, cy = w // 2 - card_w // 2, 22
+        accent = theme.accent if music.tonal_system == "makam" else theme.secondary
+        self._soft_card(img, cx, cy, card_w, card_h, alpha=0.94, radius=20, accent=accent)
+
+        if " - " in music.chord_name:
+            main_name, detail_name = music.chord_name.split(" - ", 1)
+        else:
+            main_name, detail_name = music.chord_name, ""
+        draw_text(img, "ESLIK", cx + 28, cy + 28, 0.26, theme.muted, 1)
+        draw_text(img, main_name[:18], cx + 26, cy + 68, 0.88, theme.text, 2)
+        caption = detail_name if detail_name else f"{music.bpm:0.0f} BPM"
+        draw_text(img, caption[:30], cx + 28, cy + 92, 0.30, theme.muted, 1)
+
+        note_text = pitch.note_name if pitch.voiced else "--"
+        draw_text(img, "SESIN", cx + card_w - 168, cy + 28, 0.26, theme.muted, 1)
+        draw_text(img, note_text, cx + card_w - 170, cy + 74, 0.9, theme.primary, 2)
+        badge_text = "MAKAM" if music.tonal_system == "makam" else "BATI"
+        self._pill(img, cx + card_w - 92, cy + card_h - 30, 70, 22, accent, badge_text, theme.bg, 0.26)
+
+        # Sol ust: durum noktasi (kamera+ses hazir mi)
+        online = "ONLINE" in audio_status
+        cam_online = "ONLINE" in camera_status
+        ready = online and cam_online
+        cv2.circle(img, (28, 28), 7, theme.success if ready else theme.warning, -1, cv2.LINE_AA)
+        status_label = "Hazir" if ready else ("Kamera bekleniyor" if not cam_online else "Ses bekleniyor")
+        draw_text(img, status_label, 44, 33, 0.27, theme.muted, 1)
+
+        # Alt orta: su an calan katmanlar, tek satirlik kompakt serit.
+        ordered_layers = sorted(layers, key=lambda name: LAYER_KEY_BY_NAME.get(name, "~"))
+        active_names = [LAYER_LABEL_BY_NAME.get(name, name) for name in ordered_layers]
+        row_text = " | ".join(active_names) if active_names else "Sessiz"
+        text_w = cv2.getTextSize(row_text[:80], cv2.FONT_HERSHEY_SIMPLEX, 0.30, 1)[0][0]
+        strip_w = min(w - 80, text_w + 48)
+        strip_x = w // 2 - strip_w // 2
+        strip_h = 48
+        strip_y = h - strip_h - 24
+        self._soft_card(img, strip_x, strip_y, strip_w, strip_h, alpha=0.90, radius=16)
+        draw_text(img, "CALAN ENSTRUMANLAR", strip_x + 18, strip_y + 17, 0.22, theme.muted, 1)
+        draw_text(img, row_text[:80], strip_x + 18, strip_y + 38, 0.28, theme.text, 1)
+
+        hint = "Gelismis gorunum: Tab  |  Kilavuz: /"
+        hint_w = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.24, 1)[0][0]
+        draw_text(img, hint, w - hint_w - 20, h - 16, 0.24, theme.muted, 1)
+
+    def _draw_guide_overlay(self, img: np.ndarray) -> None:
+        """Tam ekran kullanim kilavuzu: hangi jest/tus hangi enstrumani
+        kontrol ediyor. '/' ile ac/kapat."""
+        theme = self.theme
+        h, w = img.shape[:2]
+        dim = img.copy()
+        dim[:] = theme.bg
+        alpha_blend(img, dim, 0.86)
+
+        panel_w, panel_h = min(920, w - 80), min(560, h - 80)
+        px, py = (w - panel_w) // 2, (h - panel_h) // 2
+        self._soft_card(img, px, py, panel_w, panel_h, alpha=0.97, radius=18, accent=theme.primary)
+        draw_text(img, "KULLANIM KILAVUZU", px + 28, py + 40, 0.52, theme.text, 2)
+        draw_text(img, "Kapatmak icin '/' tusuna tekrar bas", px + 28, py + 62, 0.28, theme.muted, 1)
+
+        col1_x = px + 28
+        col2_x = px + panel_w // 2 + 10
+        row_y = py + 100
+
+        draw_text(img, "JESTLER (ELLER SERBEST)", col1_x, row_y, 0.30, theme.accent, 1)
+        gestures = [
+            ("Sag acik el", "Yaylilar (Strings) ac"),
+            ("Sol acik el", "Pad ac"),
+            ("Iki acik el (tut)", "Tam orkestra + mesafeyle yogunluk"),
+            ("Peace (V)", "Ritim ac/kapat"),
+            ("Yumruk", "Ek katmanlari sustur"),
+            ("Isaret parmagi", "Katmanlar arasinda sirayla sec"),
+            ("Pinch (basparmak+isaret)", "Reverb/echo miktari"),
+            ("El acikligi (surekli)", "Parlaklik (ton koyu<->parlak)"),
+            ("El hareket hizi (surekli)", "Artikulasyon (legato<->staccato)"),
+        ]
+        gy = row_y + 26
+        for label, effect in gestures:
+            draw_text(img, label, col1_x, gy, 0.27, theme.text, 1)
+            draw_text(img, effect, col1_x, gy + 17, 0.24, theme.muted, 1)
+            gy += 38
+
+        draw_text(img, "ENSTRUMAN TUSLARI (HER ZAMAN GECERLI)", col2_x, row_y, 0.30, theme.accent, 1)
+        ky = row_y + 26
+        key_items = sorted(LAYER_KEYS.items(), key=lambda item: item[1][1])
+        for key_char, (_layer, label) in key_items:
+            badge_x, badge_y = col2_x, ky - 12
+            rounded_rect(img, (badge_x, badge_y), (badge_x + 20, badge_y + 18), theme.panel2, radius=4, thickness=-1)
+            draw_text(img, key_char.upper(), badge_x + 5, badge_y + 14, 0.28, theme.accent, 1)
+            draw_text(img, label, badge_x + 30, ky, 0.27, theme.text, 1)
+            ky += 24
+
+        other_y = ky + 16
+        draw_text(img, "DIGER TUSLAR", col2_x, other_y, 0.30, theme.accent, 1)
+        other_keys = (
+            "Tab basit/gelismis gorunum  |  T tonalite (Bati/Makam)  |  D dizi rengi  |  A oto-duzenleme\n"
+            "F tam orkestra  |  X sadece piyano  |  R kayit (video+wav+midi)  |  S ekran goruntusu  |  1-4 tema\n"
+            "H arayuz  |  E vokal fx  |  V monitoring  |  Space tap tempo  |  [ ] bpm  |  - + reverb\n"
+            "9 0 piyano seviyesi  |  M ayna  |  Q/Esc cikis"
+        )
+        oy = other_y + 22
+        for line in other_keys.split("\n"):
+            draw_text(img, line, col2_x, oy, 0.24, theme.muted, 1)
+            oy += 20
 
     def _soft_grade(self, frame: np.ndarray) -> np.ndarray:
         # convertScaleAbs, tam-kare float dönüşümünden daha ucuzdur.
+        theme = self.theme
+        if theme.dark:
+            # Koyu stüdyo temalarında kamera görüntüsü hafifçe karartılıp
+            # soğutulur; böylece parlak panel/metin katmanları daha net öne çıkar.
+            graded = cv2.convertScaleAbs(frame, alpha=0.72, beta=-6)
+            graded = graded.astype(np.int16)
+            graded[:, :, 0] = np.clip(graded[:, :, 0] + 6, 0, 255)  # B kanalini hafif yukselt
+            graded[:, :, 2] = np.clip(graded[:, :, 2] - 4, 0, 255)  # R kanalini hafif dusur
+            return graded.astype(np.uint8)
         return cv2.convertScaleAbs(frame, alpha=0.93, beta=18)
 
     def _draw_ambient_wash(self, img: np.ndarray) -> None:
@@ -1597,16 +2833,26 @@ class HUDRenderer:
             self.ambient_cache[key] = overlay
         cv2.addWeighted(overlay, 0.075, img, 0.925, 0, img)
 
-    def _soft_card(self, img: np.ndarray, x: int, y: int, w: int, h: int, alpha: float = 0.86, radius: int = 24) -> None:
+    def _soft_card(
+        self, img: np.ndarray, x: int, y: int, w: int, h: int, alpha: float = 0.90, radius: int = 16,
+        accent: Optional[Color] = None,
+    ) -> None:
+        """Duz/modern stüdyo paneli: ince kenarlik, hafif golge ve ustte
+        (opsiyonel) ince renkli aksan seridi - profesyonel DAW panellerindeki
+        gibi bir "baslik serit" hissi verir."""
         theme = self.theme
-        # Bulanık gölge her karede hesaplanmıyor. Hafif ofset yüzey yeterli.
         shadow = img.copy()
-        rounded_rect(shadow, (x + 4, y + 5), (x + w + 4, y + h + 5), theme.muted, radius=radius, thickness=-1)
-        alpha_blend(img, shadow, 0.05)
+        offset = 3 if theme.dark else 5
+        rounded_rect(shadow, (x + offset, y + offset + 1), (x + w + offset, y + h + offset + 1), (0, 0, 0), radius=radius, thickness=-1)
+        alpha_blend(img, shadow, 0.30 if theme.dark else 0.07)
         overlay = img.copy()
         rounded_rect(overlay, (x, y), (x + w, y + h), theme.panel, radius=radius, thickness=-1)
         alpha_blend(img, overlay, alpha)
         rounded_rect(img, (x, y), (x + w, y + h), theme.panel2, radius=radius, thickness=1)
+        if accent is not None:
+            # Yuvarlatilmis kosevi asmamak icin serit, sol/sag radius kadar
+            # icerden baslar (tam-kare boyutunda maske olusturmaktan kacinilir).
+            cv2.rectangle(img, (x + radius, y + 1), (x + w - radius, y + 3), accent, -1, cv2.LINE_AA)
 
     def _pill(self, img: np.ndarray, x: int, y: int, w: int, h: int, fill: Color, text: str, text_color: Optional[Color] = None, scale: float = 0.34) -> None:
         rounded_rect(img, (x, y), (x + w, y + h), fill, radius=h // 2, thickness=-1)
@@ -1619,124 +2865,213 @@ class HUDRenderer:
         if value > 0.01:
             rounded_rect(img, (x, y), (x + max(8, int(w * value)), y + 7), color, radius=4, thickness=-1)
 
+    def _led_meter(self, img: np.ndarray, x: int, y: int, w: int, h: int, value: float, color: Color, segments: int = 20) -> None:
+        """Profesyonel ses ekipmanlarindaki segmentli LED VU-metre gorunumu."""
+        theme = self.theme
+        value = clamp(value, 0.0, 1.0)
+        gap = 3
+        seg_w = (w - gap * (segments - 1)) / segments
+        lit = int(round(value * segments))
+        for i in range(segments):
+            sx = int(x + i * (seg_w + gap))
+            active = i < lit
+            if active:
+                t = i / max(segments - 1, 1)
+                fill = color if t < 0.78 else tuple(int(color[c] * 0.5 + theme.warning[c] * 0.5) for c in range(3))
+            else:
+                fill = theme.panel2
+            cv2.rectangle(img, (sx, y), (int(sx + seg_w), y + h), fill, -1, cv2.LINE_AA)
+
     def _draw_header(self, img: np.ndarray) -> None:
         theme = self.theme
         h, w = img.shape[:2]
-        self._soft_card(img, 24, 20, 330, 66, alpha=0.90, radius=25)
-        draw_text(img, "Harmoni", 45, 54, 0.70, theme.text, 2)
-        draw_text(img, "canli vokal ve piyano esligi", 46, 75, 0.31, theme.muted, 1)
+        self._soft_card(img, 24, 20, 330, 66, alpha=0.94, radius=14, accent=theme.primary)
+        cv2.circle(img, (48, 53), 4, theme.primary, -1, cv2.LINE_AA)
+        cv2.circle(img, (48, 53), 8, theme.primary, 1, cv2.LINE_AA)
+        draw_text(img, "HARMONI", 62, 54, 0.62, theme.text, 2)
+        draw_text(img, f"v3.8  |  tema {theme.name.title()}", 63, 75, 0.28, theme.muted, 1)
 
-        self._soft_card(img, w - 354, 20, 330, 66, alpha=0.90, radius=25)
+        self._soft_card(img, w - 354, 20, 330, 66, alpha=0.94, radius=14)
         with self.state.lock:
             audio_status = self.state.audio_status
+            camera_status = self.state.camera_status
             latency = self.state.latency_ms
             camera_fps = self.state.camera_fps
             detector_fps = self.state.detector_fps
         online = "ONLINE" in audio_status
-        dot_color = theme.success if online else theme.warning
-        cv2.circle(img, (w - 328, 52), 6, dot_color, -1, cv2.LINE_AA)
+        cam_online = "ONLINE" in camera_status
+        dot_color = theme.success if online else theme.danger
+        cv2.circle(img, (w - 328, 52), 5, dot_color, -1, cv2.LINE_AA)
         status_text = "Dinliyor ve eslik ediyor" if online else "Ses sistemi beklemede"
-        draw_text(img, status_text, w - 312, 56, 0.37, theme.text, 1)
+        draw_text(img, status_text, w - 312, 56, 0.35, theme.text, 1)
+        cam_dot = theme.success if cam_online else theme.danger
+        cv2.circle(img, (w - 328, 73), 4, cam_dot, -1, cv2.LINE_AA)
         fps = float(np.mean(self.fps_history)) if self.fps_history else 0.0
-        draw_text(img, f"ekran {fps:0.0f}  kamera {camera_fps:0.0f}  el {detector_fps:0.0f}  | {latency:0.0f} ms", w - 312, 76, 0.24, theme.muted, 1)
+        draw_text(img, f"kamera {camera_fps:0.0f}fps  el {detector_fps:0.0f}fps  arayuz {fps:0.0f}fps  {latency:0.0f}ms", w - 312, 77, 0.23, theme.muted, 1)
 
     def _draw_vocal_card(self, img: np.ndarray) -> None:
         theme = self.theme
         x, y, w, h = 24, 112, 252, 344
-        self._soft_card(img, x, y, w, h, alpha=0.88)
+        self._soft_card(img, x, y, w, h, alpha=0.92, accent=theme.secondary)
         with self.state.lock:
             pitch = PitchSnapshot(**vars(self.state.pitch))
             music = MusicSnapshot(**vars(self.state.music))
             vocal_level = self.state.vocal_level
 
-        draw_text(img, "Sesin", x + 20, y + 32, 0.45, theme.text, 1)
-        draw_text(img, "Su an duydugum nota", x + 20, y + 55, 0.31, theme.muted, 1)
-        note_text = pitch.note_name if pitch.voiced else "—"
-        draw_text(img, note_text, x + 18, y + 120, 1.42, theme.primary, 2)
-        draw_text(img, f"{pitch.frequency:0.1f} Hz", x + 142, y + 103, 0.39, theme.text, 1)
-        draw_text(img, f"{pitch.cents:+0.1f} cent", x + 142, y + 126, 0.30, theme.muted, 1)
+        draw_text(img, "VOKAL", x + 20, y + 34, 0.38, theme.muted, 1)
+        note_text = pitch.note_name if pitch.voiced else "--"
+        if theme.dark:
+            # Ucuz "glow": Gaussian blur yerine hafif koyu golge + parlak metin.
+            draw_text(img, note_text, x + 20, y + 124, 1.42, (0, 0, 0), 3)
+        draw_text(img, note_text, x + 18, y + 122, 1.42, theme.primary, 2)
+        draw_text(img, f"{pitch.frequency:0.1f} Hz", x + 142, y + 103, 0.38, theme.text, 1)
+        if music.tonal_system == "makam" and pitch.voiced:
+            perde_name, perde_offset = nearest_perde_name(pitch.frequency)
+            draw_text(img, f"{perde_name} {perde_offset:+0.0f}c", x + 142, y + 126, 0.29, theme.muted, 1)
+        else:
+            draw_text(img, f"{pitch.cents:+0.1f} cent", x + 142, y + 126, 0.29, theme.muted, 1)
 
-        draw_text(img, "Nota netligi", x + 20, y + 164, 0.31, theme.muted, 1)
-        draw_text(img, f"%{int(pitch.confidence * 100)}", x + 192, y + 164, 0.31, theme.text, 1)
-        self._progress(img, x + 20, y + 176, w - 40, pitch.confidence, theme.primary)
+        draw_text(img, "NOTA NETLIGI", x + 20, y + 166, 0.28, theme.muted, 1)
+        draw_text(img, f"{int(pitch.confidence * 100)}%", x + w - 62, y + 166, 0.28, theme.text, 1)
+        self._led_meter(img, x + 20, y + 174, w - 40, 10, pitch.confidence, theme.primary)
 
         level = clamp(vocal_level * 11.0, 0.0, 1.0)
-        draw_text(img, "Ses seviyesi", x + 20, y + 211, 0.31, theme.muted, 1)
-        draw_text(img, f"%{int(level * 100)}", x + 192, y + 211, 0.31, theme.text, 1)
-        self._progress(img, x + 20, y + 223, w - 40, level, theme.secondary)
+        draw_text(img, "SES SEVIYESI", x + 20, y + 211, 0.28, theme.muted, 1)
+        draw_text(img, f"{int(level * 100)}%", x + w - 62, y + 211, 0.28, theme.text, 1)
+        self._led_meter(img, x + 20, y + 219, w - 40, 10, level, theme.secondary)
 
-        draw_text(img, "Tonalite", x + 20, y + 266, 0.31, theme.muted, 1)
-        draw_text(img, music.key_name.title(), x + 20, y + 296, 0.54, theme.text, 1)
+        rounded_rect(img, (x + 20, y + 254), (x + w - 20, y + 255), theme.panel2, radius=1, thickness=-1)
+
+        draw_text(img, "TONALITE / MAKAM", x + 20, y + 280, 0.28, theme.muted, 1)
+        draw_text(img, music.key_name.title()[:22], x + 20, y + 308, 0.50, theme.text, 1)
+        badge_text = "MAKAM" if music.tonal_system == "makam" else "BATI"
+        badge_color = theme.accent if music.tonal_system == "makam" else theme.secondary
+        self._pill(img, x + w - 92, y + 286, 72, 22, badge_color, badge_text, theme.bg, 0.28)
 
         fx = self.audio.dsp
         self._pill(img, x + 20, y + 314, 91, 25, theme.panel2, "Dogal", theme.text, 0.30)
-        reverb_label = f"Reverb %{int(clamp(fx.reverb_mix / 0.24, 0, 1) * 100)}"
-        self._pill(img, x + 119, y + 314, 112, 25, theme.secondary, reverb_label, theme.text, 0.27)
+        reverb_label = f"Reverb {int(clamp(fx.reverb_mix / 0.24, 0, 1) * 100)}%"
+        self._pill(img, x + 119, y + 314, 112, 25, theme.secondary, reverb_label, theme.bg, 0.27)
 
     def _draw_music_card(self, img: np.ndarray) -> None:
+        """'Su anki eslik' kartı; en onemli canli bilgi oldugu icin en ust
+        satirda (baslik kartlarinin arasinda), genis ve buyuk yazi ile."""
         theme = self.theme
         h, w = img.shape[:2]
-        x, y, cw, ch = w // 2 - 145, 112, 290, 108
-        self._soft_card(img, x, y, cw, ch, alpha=0.91, radius=28)
+        x = 24 + 330 + 20
+        right_edge = (w - 354) - 20
+        cw = max(320, right_edge - x)
+        y, ch = 14, 78
         with self.state.lock:
             music = MusicSnapshot(**vars(self.state.music))
             pitch = PitchSnapshot(**vars(self.state.pitch))
+        accent = theme.accent if music.tonal_system == "makam" else theme.secondary
+        self._soft_card(img, x, y, cw, ch, alpha=0.95, radius=16, accent=accent)
 
-        # Soft beat indicator.
-        center = (x + 51, y + 54)
-        cv2.circle(img, center, 29, theme.panel2, -1, cv2.LINE_AA)
-        cv2.ellipse(img, center, (29, 29), 0, -90, int(-90 + music.beat_phase * 360), theme.primary, 4, cv2.LINE_AA)
-        cv2.circle(img, center, 6, theme.primary, -1, cv2.LINE_AA)
+        # Vuruş gostergesi: ince halka + donen ibre, stüdyo ekipmanı hissi.
+        center = (x + 42, y + ch // 2)
+        cv2.circle(img, center, 25, theme.panel2, 2, cv2.LINE_AA)
+        cv2.ellipse(img, center, (25, 25), 0, -90, int(-90 + music.beat_phase * 360), theme.primary, 3, cv2.LINE_AA)
+        cv2.circle(img, center, 5, theme.primary, -1, cv2.LINE_AA)
+        bpm_conf = music.makam_confidence if music.tonal_system == "makam" else music.key_confidence
+        cv2.ellipse(img, center, (17, 17), 0, -90, int(-90 + clamp(bpm_conf, 0.0, 1.0) * 360), theme.accent, 2, cv2.LINE_AA)
 
-        draw_text(img, "Su anki eslik", x + 92, y + 30, 0.31, theme.muted, 1)
-        draw_text(img, music.chord_name, x + 91, y + 70, 0.92, theme.text, 2)
+        text_x = x + 84
+        draw_text(img, "SU ANKI ESLIK", text_x, y + 22, 0.26, theme.muted, 1)
+        if " - " in music.chord_name:
+            main_name, detail_name = music.chord_name.split(" - ", 1)
+        else:
+            main_name, detail_name = music.chord_name, ""
+        draw_text(img, main_name[:22], text_x, y + 54, 0.72, theme.text, 2)
+        name_w = cv2.getTextSize(main_name[:22], cv2.FONT_HERSHEY_SIMPLEX, 0.72, 2)[0][0]
+
         listening = pitch.note_name if pitch.voiced else "dinliyor"
-        draw_text(img, f"{music.bpm:0.0f} BPM  |  {listening}", x + 92, y + 94, 0.31, theme.muted, 1)
+        info_line = f"{detail_name}  |  {music.bpm:0.0f} BPM  |  {listening}" if detail_name else f"{music.bpm:0.0f} BPM  |  {listening}"
+        info_x = text_x + name_w + 22
+        if info_x < x + cw - 140:
+            draw_text(img, info_line[:44], info_x, y + 50, 0.30, theme.muted, 1)
+        else:
+            draw_text(img, info_line[:44], text_x, y + 70, 0.26, theme.muted, 1)
+
+        badge_text = "MAKAM" if music.tonal_system == "makam" else "BATI"
+        self._pill(img, x + cw - 88, y + ch - 30, 70, 22, accent, badge_text, theme.bg, 0.27)
 
     def _draw_orchestra_card(self, img: np.ndarray) -> None:
         theme = self.theme
         h_img, w_img = img.shape[:2]
-        x, y, w, h = w_img - 276, 112, 252, 402
-        self._soft_card(img, x, y, w, h, alpha=0.88)
+        x, y, w, h = w_img - 276, 112, 252, 525
         with self.state.lock:
             layers = set(self.state.active_layers)
             gesture = self.state.gesture
             detail = self.state.gesture_detail
+            tonal_system = self.state.music.tonal_system
+        self._soft_card(img, x, y, w, h, alpha=0.92, accent=theme.primary)
 
-        draw_text(img, "Eslik", x + 20, y + 34, 0.45, theme.text, 1)
-        draw_text(img, "El hareketlerinle degisir", x + 20, y + 57, 0.31, theme.muted, 1)
+        with self.state.lock:
+            auto_arrange = self.state.auto_arrange_enabled
+        draw_text(img, f"ORKESTRA ({len(LAYER_KEYS)} KATMAN)", x + 20, y + 34, 0.32, theme.muted, 1)
+        subtitle = "Otomatik duzenleme (A ile kapat)" if auto_arrange else "Manuel kontrol (A ile ac)"
+        draw_text(img, subtitle, x + 20, y + 57, 0.24, theme.accent if auto_arrange else theme.muted, 1)
 
-        layer_rows = [
-            ("PIANO", "Piyano"),
-            ("STRINGS", "Yaylilar"),
-            ("PAD", "Yumusak pad"),
-            ("BASS", "Bas"),
-            ("DRUMS", "Ritim"),
+        # Kompakt 2 sutunlu mikser-benzeri izgara; her hucrede dogrudan
+        # klavye kisayolu (LAYER_KEYS) rozet olarak gosterilir - "hangi
+        # enstruman hangi tusla" sorusunun cevabi HER ZAMAN ekranda.
+        layer_order_display = [
+            "PIANO", "BAGLAMA", "NEY", "WOODWINDS", "BRASS", "STRINGS",
+            "KEMAN", "GITAR", "PAD", "BASS", "DRUMS", "DAVUL",
         ]
-        yy = y + 89
-        for key, label in layer_rows:
-            active = key in layers
-            fill = tuple(int(theme.panel[i] * 0.68 + theme.primary[i] * 0.32) for i in range(3)) if active else theme.panel2
+        layer_cells = [(name, LAYER_KEY_BY_NAME.get(name, "?"), LAYER_KEYS.get(LAYER_KEY_BY_NAME.get(name, ""), (name, name))[1]) for name in layer_order_display]
+        if tonal_system == "makam":
+            idx0 = layer_order_display.index("PIANO")
+            layer_cells[idx0] = ("PIANO", "P", "Piyano (kapali)")
+        col_w = (w - 36 - 8) // 2
+        cell_h = 38
+        gap = 7
+        grid_top = y + 78
+        for idx, (layer_name, key_char, label) in enumerate(layer_cells):
+            col = idx % 2
+            row = idx // 2
+            cx = x + 18 + col * (col_w + 8)
+            cy = grid_top + row * (cell_h + gap)
+            active = layer_name in layers
+            fill = tuple(int(theme.panel2[i] * 0.5 + theme.primary[i] * 0.22) for i in range(3)) if active else theme.panel2
+            rounded_rect(img, (cx, cy), (cx + col_w, cy + cell_h), fill, radius=9, thickness=-1)
+            if active:
+                rounded_rect(img, (cx, cy), (cx + col_w, cy + cell_h), theme.primary, radius=9, thickness=1)
             dot = theme.success if active else theme.muted
-            rounded_rect(img, (x + 18, yy), (x + w - 18, yy + 43), fill, radius=15, thickness=-1)
-            cv2.circle(img, (x + 38, yy + 21), 5, dot, -1, cv2.LINE_AA)
-            draw_text(img, label, x + 53, yy + 27, 0.37, theme.text, 1)
-            draw_text(img, "acik" if active else "kapali", x + 171, yy + 27, 0.28, theme.text if active else theme.muted, 1)
-            yy += 51
+            cv2.circle(img, (cx + 14, cy + cell_h // 2), 4, dot, -1, cv2.LINE_AA)
+            draw_text(img, label, cx + 25, cy + cell_h // 2 + 4, 0.26, theme.text if active else theme.muted, 1)
+            badge_x = cx + col_w - 22
+            rounded_rect(img, (badge_x, cy + 7), (badge_x + 16, cy + 7 + 16), theme.panel2, radius=4, thickness=-1)
+            draw_text(img, key_char.upper(), badge_x + 4, cy + 19, 0.28, theme.accent, 1)
+        rows_used = (len(layer_cells) + 1) // 2
+        grid_bottom = grid_top + rows_used * cell_h + (rows_used - 1) * gap
 
-        draw_text(img, "Algilanan hareket", x + 20, y + 352, 0.29, theme.muted, 1)
+        info_y = grid_bottom + 24
+        draw_text(img, "ALGILANAN HAREKET", x + 20, info_y, 0.26, theme.muted, 1)
         readable_gesture = gesture.replace("OPEN_HAND", "ACIK EL").replace("RIGHT", "SAG").replace("LEFT", "SOL")
-        draw_text(img, readable_gesture[:25], x + 20, y + 377, 0.36, theme.text, 1)
-        draw_text(img, detail[:30].title(), x + 20, y + 397, 0.27, theme.muted, 1)
+        draw_text(img, readable_gesture[:25], x + 20, info_y + 24, 0.34, theme.text, 1)
+        draw_text(img, detail[:30].title(), x + 20, info_y + 43, 0.26, theme.muted, 1)
+
+        brightness = clamp(self.audio.synth.brightness, 0.0, 1.0)
+        articulation = clamp(self.audio.synth.articulation, 0.0, 1.0)
+        meter_y = info_y + 63
+        draw_text(img, "PARLAKLIK", x + 20, meter_y, 0.24, theme.muted, 1)
+        self._led_meter(img, x + 20, meter_y + 6, w - 40, 8, brightness, theme.accent, segments=16)
+        draw_text(img, "LEGATO", x + 20, meter_y + 30, 0.24, theme.muted, 1)
+        self._led_meter(img, x + 20, meter_y + 36, w - 40, 8, articulation, theme.secondary, segments=16)
 
     def _draw_bottom_deck(self, img: np.ndarray) -> None:
         theme = self.theme
         h, w = img.shape[:2]
-        x, y, bw, bh = 300, h - 184, w - 600, 160
-        self._soft_card(img, x, y, bw, bh, alpha=0.90, radius=27)
-        draw_text(img, "Canli akis", x + 20, y + 28, 0.34, theme.text, 1)
-        draw_text(img, "Q cikis | E efekt | V monitoring | 9/0 piyano sesi | 1-4 tema", x + 128, y + 28, 0.25, theme.muted, 1)
-        self._draw_waveform(img, x + 20, y + 42, bw - 40, 42)
+        bh = 170
+        x, y, bw = 300, h - bh - 24, w - 600
+        self._soft_card(img, x, y, bw, bh, alpha=0.92, radius=16)
+        draw_text(img, "CANLI AKIS", x + 20, y + 28, 0.32, theme.muted, 1)
+        draw_text(img, "Q cikis | E efekt | V monitoring | T makam/bati | D dizi rengi | A oto-duzen | 9/0 piyano | 1-4 tema", x + 128, y + 28, 0.20, theme.muted, 1)
+        half_w = (bw - 40 - 16) // 2
+        self._draw_waveform(img, x + 20, y + 42, half_w, 42)
+        self._draw_spectrum(img, x + 20 + half_w + 16, y + 42, half_w, 42)
         self._draw_keyboard(img, x + 20, y + 91, bw - 40, 49)
 
     def _draw_hand_skeletons(self, img: np.ndarray, hands: Sequence[HandPacket]) -> None:
@@ -1744,20 +3079,25 @@ class HUDRenderer:
         overlay = img.copy()
         for hand in hands:
             color = theme.primary if hand.label == "RIGHT" else theme.secondary
+            thickness = 1 if theme.dark else 2
             for a, b in HAND_CONNECTIONS:
-                cv2.line(overlay, hand.landmarks[a], hand.landmarks[b], color, 2, cv2.LINE_AA)
+                cv2.line(overlay, hand.landmarks[a], hand.landmarks[b], color, thickness, cv2.LINE_AA)
+            for idx in (WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP):
+                cv2.circle(overlay, hand.landmarks[idx], 2, color, -1, cv2.LINE_AA)
             for idx in (THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP):
                 cv2.circle(overlay, hand.landmarks[idx], 4, color, -1, cv2.LINE_AA)
+                cv2.circle(overlay, hand.landmarks[idx], 6, color, 1, cv2.LINE_AA)
             cx, cy = hand.palm_center
             label = "Sag el" if hand.label == "RIGHT" else "Sol el"
-            label += " | " + hand.gesture.replace("OPEN_HAND", "Acik").replace("FIST", "Kapali").replace("PEACE", "Peace").title()
+            label += " - " + hand.gesture.replace("OPEN_HAND", "Acik").replace("FIST", "Kapali").replace("PEACE", "Peace").title()
             tw = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.29, 1)[0][0]
-            rounded_rect(overlay, (cx - tw // 2 - 10, cy + 37), (cx + tw // 2 + 10, cy + 62), theme.panel, radius=13, thickness=-1)
+            rounded_rect(overlay, (cx - tw // 2 - 10, cy + 37), (cx + tw // 2 + 10, cy + 62), theme.panel, radius=11, thickness=-1)
+            rounded_rect(overlay, (cx - tw // 2 - 10, cy + 37), (cx + tw // 2 + 10, cy + 62), color, radius=11, thickness=1)
             draw_text(overlay, label, cx - tw // 2, cy + 54, 0.29, theme.text, 1)
             if hand.gesture == "PINCH":
                 p1, p2 = hand.landmarks[THUMB_TIP], hand.landmarks[INDEX_TIP]
                 cv2.line(overlay, p1, p2, theme.accent, 3, cv2.LINE_AA)
-        alpha_blend(img, overlay, 0.72)
+        alpha_blend(img, overlay, 0.80 if theme.dark else 0.72)
 
         if len(hands) >= 2 and all(hand.gesture == "OPEN_HAND" for hand in hands[:2]):
             p1, p2 = hands[0].palm_center, hands[1].palm_center
@@ -1769,20 +3109,54 @@ class HUDRenderer:
         theme = self.theme
         with self.state.lock:
             waveform = np.asarray(self.state.waveform, dtype=np.float32).copy()
+        rounded_rect(img, (x, y), (x + w, y + h), theme.panel2, radius=6, thickness=-1)
         if waveform.size < 2:
             return
         xs = np.linspace(x, x + w, waveform.size).astype(np.int32)
         center_y = y + h // 2
-        ys = (center_y - np.clip(waveform, -0.6, 0.6) * (h * 0.75)).astype(np.int32)
+        cv2.line(img, (x, center_y), (x + w, center_y), theme.panel2, 1, cv2.LINE_AA)
+        ys = (center_y - np.clip(waveform, -0.6, 0.6) * (h * 0.42)).astype(np.int32)
         points = np.column_stack((xs, ys)).reshape(-1, 1, 2)
         fill_points = np.vstack([
             points.reshape(-1, 2),
             np.array([[x + w, center_y], [x, center_y]], dtype=np.int32),
         ]).reshape(-1, 1, 2)
         fill = img.copy()
-        cv2.fillPoly(fill, [fill_points], theme.secondary, cv2.LINE_AA)
-        alpha_blend(img, fill, 0.18)
+        cv2.fillPoly(fill, [fill_points], theme.primary, cv2.LINE_AA)
+        alpha_blend(img, fill, 0.22 if theme.dark else 0.16)
         cv2.polylines(img, [points], False, theme.primary, 2, cv2.LINE_AA)
+
+    def _draw_spectrum(self, img: np.ndarray, x: int, y: int, w: int, h: int) -> None:
+        """Girisin (mikrofon) kucuk bir FFT spektrumu; teknik/profesyonel bir
+        performans gorunumu icin waveform'un yaninda gosterilir."""
+        theme = self.theme
+        rounded_rect(img, (x, y), (x + w, y + h), theme.panel2, radius=6, thickness=-1)
+        with self.state.lock:
+            waveform = np.asarray(self.state.waveform, dtype=np.float32).copy()
+        if waveform.size < 8:
+            return
+        windowed = waveform * np.hanning(waveform.size)
+        spectrum = np.abs(np.fft.rfft(windowed))
+        bars = 24
+        # Insan kulaginin frekans algisina yakin olmasi icin dogrusal degil
+        # logaritmik (geometrik) bin gruplama kullanilir.
+        edges = np.geomspace(1, max(2, len(spectrum) - 1), bars + 1).astype(int)
+        values = np.zeros(bars, dtype=np.float32)
+        for i in range(bars):
+            lo, hi = edges[i], max(edges[i] + 1, edges[i + 1])
+            values[i] = float(np.mean(spectrum[lo:hi]))
+        values = np.log1p(values * 40.0)
+        peak = float(values.max())
+        if peak > 1e-6:
+            values = np.clip(values / peak, 0.0, 1.0)
+        gap = 2
+        bar_w = (w - gap * (bars - 1)) / bars
+        for i, v in enumerate(values):
+            bx = int(x + i * (bar_w + gap))
+            bar_h = max(2, int(v * (h - 4)))
+            t = i / max(bars - 1, 1)
+            color = tuple(int(theme.secondary[c] * (1 - t) + theme.primary[c] * t) for c in range(3))
+            cv2.rectangle(img, (bx, y + h - bar_h - 2), (int(bx + bar_w), y + h - 2), color, -1, cv2.LINE_AA)
 
     def _draw_keyboard(self, img: np.ndarray, x: int, y: int, width: int, height: int) -> None:
         theme = self.theme
@@ -1792,16 +3166,18 @@ class HUDRenderer:
         white_count = 14
         key_w = width / white_count
         white_pcs = [0, 2, 4, 5, 7, 9, 11]
+        white_idle = theme.panel2 if theme.dark else theme.panel
+        black_idle = tuple(int(theme.bg[i] * 0.5 + theme.panel2[i] * 0.5) for i in range(3)) if theme.dark else (60, 56, 52)
         for i in range(white_count):
             pc = white_pcs[i % 7]
             x1 = int(x + i * key_w)
             x2 = int(x + (i + 1) * key_w - 2)
             active = pc in chord_notes
-            color = theme.primary if active else theme.panel
-            rounded_rect(img, (x1, y), (x2, y + height), color, radius=5, thickness=-1)
-            rounded_rect(img, (x1, y), (x2, y + height), theme.panel2, radius=5, thickness=1)
+            color = theme.primary if active else white_idle
+            rounded_rect(img, (x1, y), (x2, y + height), color, radius=4, thickness=-1)
+            rounded_rect(img, (x1, y), (x2, y + height), theme.panel2, radius=4, thickness=1)
             if pc == pitch_note:
-                rounded_rect(img, (x1 + 3, y + 3), (x2 - 3, y + height - 3), theme.accent, radius=4, thickness=2)
+                rounded_rect(img, (x1 + 3, y + 3), (x2 - 3, y + height - 3), theme.accent, radius=3, thickness=2)
         black_positions = [0, 1, 3, 4, 5]
         black_pcs = [1, 3, 6, 8, 10]
         for octave in range(2):
@@ -1810,8 +3186,8 @@ class HUDRenderer:
                 bx = int(x + (base + pos + 0.70) * key_w)
                 key_width = max(8, int(key_w * 0.55))
                 active = pc in chord_notes
-                color = theme.secondary if active else (83, 79, 86)
-                rounded_rect(img, (bx, y), (bx + key_width, y + int(height * 0.61)), color, radius=4, thickness=-1)
+                color = theme.secondary if active else black_idle
+                rounded_rect(img, (bx, y), (bx + key_width, y + int(height * 0.61)), color, radius=3, thickness=-1)
                 if pc == pitch_note:
                     rounded_rect(img, (bx + 2, y + 2), (bx + key_width - 2, y + int(height * 0.61) - 2), theme.accent, radius=3, thickness=2)
 
@@ -1820,24 +3196,111 @@ class HUDRenderer:
 # ANA UYGULAMA
 # -----------------------------------------------------------------------------
 
+def export_midi(path: Path, events: Sequence[Tuple[float, str, int, float, float]], bpm: float) -> bool:
+    """Bir oturumda tetiklenen notalari standart bir .mid dosyasina yazar.
+    `mido` kurulu degilse sessizce False doner (cagiran taraf toast ile bilgilendirir)."""
+    if not MIDO_AVAILABLE or not events:
+        return False
+    ticks_per_beat = 480
+    seconds_per_beat = 60.0 / max(bpm, 1.0)
+
+    def sec_to_ticks(sec: float) -> int:
+        return max(0, int(round(sec / seconds_per_beat * ticks_per_beat)))
+
+    channel_map = {"piano": 0, "piano_soft": 0, "strings": 1, "pad": 2, "bass": 3}
+    drum_notes = {"kick": 36, "snare": 38, "hat": 42}
+
+    raw_events: List[Tuple[int, int, int, int, int]] = []  # (tick, is_off, channel, note, velocity)
+    for onset, kind, note, velocity, duration in events:
+        channel = 9 if kind in drum_notes else channel_map.get(kind, 0)
+        midi_note = drum_notes.get(kind, int(clamp(note, 0, 127)))
+        vel = max(1, min(127, int(velocity * 127)))
+        on_tick = sec_to_ticks(onset)
+        off_tick = max(on_tick + 1, sec_to_ticks(onset + max(duration, 0.05)))
+        raw_events.append((on_tick, 0, channel, midi_note, vel))
+        raw_events.append((off_tick, 1, channel, midi_note, 0))
+    raw_events.sort(key=lambda item: (item[0], item[1]))
+
+    try:
+        mid = mido.MidiFile(ticks_per_beat=ticks_per_beat)
+        track = mido.MidiTrack()
+        mid.tracks.append(track)
+        track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(max(bpm, 1.0)), time=0))
+        last_tick = 0
+        for tick, is_off, channel, note, velocity in raw_events:
+            delta = max(0, tick - last_tick)
+            last_tick = tick
+            msg_type = "note_off" if is_off else "note_on"
+            track.append(mido.Message(msg_type, note=note, velocity=velocity, channel=channel, time=delta))
+        mid.save(str(path))
+        return True
+    except Exception:
+        return False
+
+
+# Her enstruman katmani icin dogrudan klavye kisayolu (el hareketine bagli
+# kalmadan istendigi an ac/kapa). Harf secimleri mumkun oldugunca Turkce
+# isimle eslesir (P=Piyano, B=Baglama, N=Ney, Y=Yaylilar, K=Keman, G=Gitar,
+# Z=Davul); cakisan birkacinda (Bakir nefesli, Pad, Bas, Ritim/Bateri, Nefesli)
+# rastgele ama sabit bir harf kullanilir - tam liste `/` ile acilan kilavuzda
+# ve HUD'daki orkestra izgarasinin her hucresinde de gosterilir.
+LAYER_KEYS: Dict[str, Tuple[str, str]] = {
+    "p": ("PIANO", "Piyano"),
+    "b": ("BAGLAMA", "Baglama"),
+    "n": ("NEY", "Ney"),
+    "w": ("WOODWINDS", "Nefesli"),
+    "c": ("BRASS", "Bakir nefesli"),
+    "y": ("STRINGS", "Yaylilar"),
+    "k": ("KEMAN", "Keman"),
+    "g": ("GITAR", "Gitar"),
+    "j": ("PAD", "Pad"),
+    "l": ("BASS", "Bas"),
+    "i": ("DRUMS", "Ritim (bateri)"),
+    "z": ("DAVUL", "Davul"),
+}
+LAYER_KEY_BY_NAME: Dict[str, str] = {layer: key for key, (layer, _label) in LAYER_KEYS.items()}
+LAYER_LABEL_BY_NAME: Dict[str, str] = {layer: label for layer, label in LAYER_KEYS.values()}
+
+
 class HarmoniApp:
-    def __init__(self, camera_index: int = CAMERA_INDEX, demo: bool = False, performance: str = "balanced", piano_volume: float = 0.27) -> None:
+    def __init__(
+        self,
+        camera_index: Optional[int] = CAMERA_INDEX,
+        demo: bool = False,
+        performance: str = "balanced",
+        piano_volume: float = 0.30,
+        theme_index: int = 0,
+        monitor_enabled: bool = True,
+        mirror: bool = True,
+        low_latency: bool = False,
+        resolution: Optional[str] = None,
+        simple_mode: bool = True,
+    ) -> None:
         self.camera_index = camera_index
         self.demo = demo
         self.performance = performance
+        self.low_latency = low_latency
+        self.resolution = resolution
+        self.simple_mode = simple_mode
         self.state = RuntimeState()
+        self.state.simple_mode = simple_mode
         self.audio = AudioEngine(self.state)
         self.audio.synth.music_gain = clamp(piano_volume, 0.08, 0.46)
+        self.audio.dsp.monitor_enabled = monitor_enabled
         process_every = {"fast": 3, "balanced": 2, "quality": 1}.get(performance, 2)
         process_width = {"fast": 384, "balanced": 512, "quality": 640}.get(performance, 512)
         self.hand_tracker = HandTracker(process_width=process_width, process_every=process_every)
         self.gesture_controller = GestureController(self.state, self.audio)
+        self.auto_arranger = AutoArranger(self.state, self.audio.synth)
         self.renderer = HUDRenderer(self.state, self.audio)
+        self.renderer.cycle_theme(theme_index)
         self.camera: Optional[CameraWorker] = None
         self.running = True
-        self.mirror = True
+        self.mirror = mirror
         self.recording = False
+        self._recording_stamp = ""
         self.writer: Optional[cv2.VideoWriter] = None
+        self.show_guide = False
         self.toast = ""
         self.toast_until = 0.0
         self.demo_phase = 0.0
@@ -1848,15 +3311,40 @@ class HarmoniApp:
     def init_camera(self) -> bool:
         if self.demo:
             return False
-        width, height = {
-            "fast": (640, 360),
-            "balanced": (CAM_CAPTURE_WIDTH, CAM_CAPTURE_HEIGHT),
-            "quality": (CAM_WIDTH, CAM_HEIGHT),
-        }.get(self.performance, (CAM_CAPTURE_WIDTH, CAM_CAPTURE_HEIGHT))
-        self.camera = CameraWorker(self.camera_index, width, height, CAM_FPS, self.state)
-        self.camera.start()
-        self.camera.opened.wait(timeout=2.0)
-        return self.camera.cap is not None
+        if self.resolution and self.resolution in RESOLUTION_PRESETS:
+            width, height = RESOLUTION_PRESETS[self.resolution]
+        else:
+            width, height = {
+                "fast": (640, 360),
+                "balanced": (CAM_CAPTURE_WIDTH, CAM_CAPTURE_HEIGHT),
+                "quality": (CAM_WIDTH, CAM_HEIGHT),
+            }.get(self.performance, (CAM_CAPTURE_WIDTH, CAM_CAPTURE_HEIGHT))
+        # camera_index None ise ("auto"), veya belirtilen index acilamazsa,
+        # calisan ilk kamerayi bulana kadar sirayla diger indeksler denenir;
+        # boylece yanlis/degismis bir kamera indeksi uygulamayi tikamaz.
+        if self.camera_index is not None:
+            candidates = [self.camera_index] + [i for i in range(5) if i != self.camera_index]
+        else:
+            candidates = list(range(5))
+        last_error = ""
+        for index in candidates:
+            camera = CameraWorker(index, width, height, CAM_FPS, self.state)
+            camera.start()
+            # Bazi Windows surucu/kamera kombinasyonlarinda backend enumerasyonu
+            # (ozellikle DSHOW) birkac saniye surebilir; erken vazgecmek
+            # calisan bir kamerayi "bulunamadi" olarak isaretleyebilir.
+            camera.opened.wait(timeout=6.0)
+            if camera.cap is not None:
+                self.camera = camera
+                self.camera_index = index
+                if index != candidates[0]:
+                    print(f"[BILGI] Kamera index {candidates[0]} acilamadi, index {index} kullaniliyor.")
+                return True
+            last_error = camera.last_error or last_error
+            camera.stop()
+        if last_error:
+            print(f"[UYARI] Kamera bulunamadi: {last_error}")
+        return False
 
     def set_toast(self, message: str, duration: float = 1.8) -> None:
         self.toast = message
@@ -1868,8 +3356,10 @@ class HarmoniApp:
         theme = self.renderer.theme
         frame[:] = theme.bg
         self.demo_phase += 0.035
-        draw_text(frame, "Kamera bekleniyor", 520, 348, 0.66, theme.text, 1)
-        draw_text(frame, "Kamera indeksini kontrol et veya baska uygulamadaki kamerayi kapat", 386, 384, 0.34, theme.muted, 1)
+        draw_text(frame, "Kamera bekleniyor", 500, 320, 0.66, theme.text, 1)
+        draw_text(frame, "1) Baska bir uygulama (Teams/Zoom/OBS) kamerayi kullaniyor olabilir, kapatip dene", 320, 360, 0.32, theme.muted, 1)
+        draw_text(frame, "2) --camera auto ile kamerayi otomatik bul", 320, 386, 0.32, theme.muted, 1)
+        draw_text(frame, "3) Windows Ayarlar > Gizlilik > Kamera > 'Uygulamalarin erisimine izin ver' acik mi?", 320, 412, 0.32, theme.muted, 1)
         return frame
 
     def _read_frame(self) -> np.ndarray:
@@ -1908,16 +3398,52 @@ class HarmoniApp:
         cv2.imwrite(str(path), frame)
         self.set_toast(f"Goruntu kaydedildi: {path.name}")
 
+    def _finish_wav_capture(self, stamp: str) -> bool:
+        frames = self.audio.stop_wav_capture()
+        if frames is None or len(frames) == 0:
+            return False
+        path = OUTPUT_DIR / f"harmoni_{stamp}.wav"
+        try:
+            pcm = np.clip(frames, -1.0, 1.0)
+            pcm16 = (pcm * 32767.0).astype(np.int16)
+            with wave.open(str(path), "wb") as handle:
+                handle.setnchannels(2)
+                handle.setsampwidth(2)
+                handle.setframerate(AUDIO_SR)
+                handle.writeframes(pcm16.tobytes())
+            return True
+        except Exception:
+            return False
+
+    def _finish_midi_capture(self, stamp: str) -> bool:
+        events = self.audio.synth.stop_midi_capture()
+        if not events:
+            return False
+        with self.state.lock:
+            bpm = self.state.music.bpm
+        path = OUTPUT_DIR / f"harmoni_{stamp}.mid"
+        return export_midi(path, events, bpm)
+
     def _toggle_recording(self, frame: np.ndarray) -> None:
         if self.recording:
             self.recording = False
             if self.writer is not None:
                 self.writer.release()
             self.writer = None
-            self.set_toast("Kayit tamamlandi")
+            stamp = self._recording_stamp
+            saved = ["video"]
+            if self._finish_wav_capture(stamp):
+                saved.append("ses")
+            if self._finish_midi_capture(stamp):
+                saved.append("MIDI")
+            else:
+                if not MIDO_AVAILABLE:
+                    saved.append("MIDI yok: pip install mido")
+            self.set_toast(f"Kayit tamamlandi ({', '.join(saved)})")
             return
         h, w = frame.shape[:2]
         stamp = time.strftime("%Y%m%d_%H%M%S")
+        self._recording_stamp = stamp
         path = OUTPUT_DIR / f"harmoni_{stamp}.mp4"
         self.writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
         if not self.writer.isOpened():
@@ -1925,7 +3451,9 @@ class HarmoniApp:
             self.set_toast("Video kaydi acilamadi")
             return
         self.recording = True
-        self.set_toast(f"Kayit: {path.name}")
+        self.audio.start_wav_capture()
+        self.audio.synth.start_midi_capture()
+        self.set_toast(f"Kayit basladi: {path.name}")
 
     def handle_key(self, key: int, frame: np.ndarray) -> None:
         if key in (ord("q"), ord("Q"), 27):
@@ -1967,12 +3495,36 @@ class HarmoniApp:
             self._save_screenshot(frame)
         elif key in (ord("r"), ord("R")):
             self._toggle_recording(frame)
+        elif key in (ord("t"), ord("T")):
+            system = self.audio.harmony.toggle_tonal_system()
+            label = "Turk Makam" if system == "makam" else "Bati (Major/Minor)"
+            self.set_toast(f"Tonalite sistemi: {label}")
+        elif key in (ord("a"), ord("A")):
+            enabled = self.auto_arranger.toggle()
+            self.set_toast(f"Otomatik duzenleme {'acik' if enabled else 'kapali (manuel kontrol)'}")
+        elif key in (ord("d"), ord("D")):
+            choice = self.audio.harmony.cycle_mode_color()
+            label = "Otomatik (major/minor tespiti)" if choice == "auto" else choice.title()
+            self.set_toast(f"Dizi rengi: {label}")
+        elif key in (ord("/"), ord("?")):
+            self.show_guide = not self.show_guide
+            with self.state.lock:
+                self.state.show_guide = self.show_guide
+        elif key == 9:  # Tab
+            self.simple_mode = not self.simple_mode
+            with self.state.lock:
+                self.state.simple_mode = self.simple_mode
+            self.set_toast("Gelismis gorunum" if not self.simple_mode else "Basit gorunum")
+        elif 0 <= key < 256 and chr(key).lower() in LAYER_KEYS:
+            layer, label = LAYER_KEYS[chr(key).lower()]
+            active = self.audio.synth.toggle_layer(layer)
+            self.set_toast(f"{label} {'acik' if active else 'kapali'}")
         elif ord("1") <= key <= ord("4"):
             self.renderer.cycle_theme(key - ord("1"))
 
     def run(self) -> None:
         camera_ok = self.init_camera()
-        audio_ok = self.audio.start()
+        audio_ok = self.audio.start(low_latency=self.low_latency)
         if not camera_ok:
             self.set_toast("Kamera acilamadi; demo goruntusu kullaniliyor", 3.0)
         if not audio_ok:
@@ -1990,6 +3542,8 @@ class HarmoniApp:
                     self.state.detector_fps = self.hand_tracker.detector_fps
                 self.gesture_controller.update(hands)
                 self.audio.update_harmony()
+                self.auto_arranger.update()
+                self.audio.restart_if_unhealthy()
                 final = self.renderer.render(frame, hands)
                 if self.recording and self.writer is not None:
                     cv2.circle(final, (CAM_WIDTH - 34, 98), 7, self.renderer.theme.danger, -1, cv2.LINE_AA)
@@ -2003,7 +3557,20 @@ class HarmoniApp:
         finally:
             self.cleanup()
 
+    def build_config_dict(self) -> Dict[str, object]:
+        return {
+            "theme_index": self.renderer.theme_index,
+            "piano_volume": self.audio.synth.music_gain,
+            "performance": self.performance,
+            "camera_index": self.camera_index if self.camera_index is not None else CAMERA_INDEX,
+            "monitor_enabled": self.audio.dsp.monitor_enabled,
+            "mirror": self.mirror,
+            "resolution": self.resolution or "",
+            "simple_mode": self.simple_mode,
+        }
+
     def cleanup(self) -> None:
+        save_config(self.build_config_dict())
         if self.writer is not None:
             self.writer.release()
             self.writer = None
@@ -2108,7 +3675,8 @@ def create_preview(path: Path) -> None:
 
 
 def run_self_test() -> int:
-    print("[1/7] Pitch detector test")
+    total_steps = 25
+    print(f"[1/{total_steps}] Pitch detector test")
     state = RuntimeState()
     tracker = PitchTracker(state)
     t = np.arange(4096, dtype=np.float64) / AUDIO_SR
@@ -2117,13 +3685,13 @@ def run_self_test() -> int:
     if not pitch.voiced or abs(pitch.frequency - 220.0) > 6.0:
         raise RuntimeError(f"Pitch test failed: {pitch}")
 
-    print("[2/7] Vocal DSP test")
+    print(f"[2/{total_steps}] Vocal DSP test")
     dsp = VocalDSP()
     processed = dsp.process(sine[:AUDIO_BLOCK])
     if processed.shape != (AUDIO_BLOCK, 2) or not np.isfinite(processed).all():
         raise RuntimeError("Vocal DSP produced invalid output")
 
-    print("[3/7] Harmony engine test")
+    print(f"[3/{total_steps}] Harmony engine test")
     harmony = HarmonyEngine(state)
     for note in (57, 60, 64, 57, 60, 64, 67):
         harmony.update(PitchSnapshot(
@@ -2140,14 +3708,14 @@ def run_self_test() -> int:
         if not state.music.chord_notes:
             raise RuntimeError("Harmony engine produced no chord")
 
-    print("[4/7] Synth render test")
+    print(f"[4/{total_steps}] Synth render test")
     synth = SynthEngine(state)
     synth.full_orchestra()
     rendered = synth.render(AUDIO_BLOCK)
     if rendered.shape != (AUDIO_BLOCK, 2) or not np.isfinite(rendered).all():
         raise RuntimeError("Synth produced invalid output")
 
-    print("[5/7] Vocal ducking test")
+    print(f"[5/{total_steps}] Vocal ducking test")
     duck_state = RuntimeState()
     with duck_state.lock:
         duck_state.music.chord_notes = (45, 48, 52)
@@ -2158,7 +3726,268 @@ def run_self_test() -> int:
     if not np.isfinite(active_mix).all() or duck_synth.music_gain > 0.46:
         raise RuntimeError("Ducking test failed")
 
-    print("[6/7] Renderer performance test")
+    print(f"[6/{total_steps}] Synth ifade kontrolleri (parlaklik/artikulasyon) testi")
+    expr_state = RuntimeState()
+    expr_synth = SynthEngine(expr_state)
+    expr_synth.full_orchestra()
+    expr_synth.set_brightness(0.1)
+    expr_synth.set_articulation(0.0)
+    dark = expr_synth.render(AUDIO_BLOCK)
+    expr_synth.set_brightness(1.0)
+    expr_synth.set_articulation(1.0)
+    bright = expr_synth.render(AUDIO_BLOCK)
+    if not np.isfinite(dark).all() or not np.isfinite(bright).all():
+        raise RuntimeError("Parlaklik/artikulasyon kontrolleri gecersiz sinyal uretti")
+
+    print(f"[7/{total_steps}] Opsiyonel FluidSynth katmani (yoksayma) testi")
+    missing_backend = FluidSynthBackend("olmayan_dosya.sf2", AUDIO_SR)
+    if missing_backend.available:
+        raise RuntimeError("FluidSynthBackend olmayan dosyayla 'available' donmemeli")
+    silent = missing_backend.render(AUDIO_BLOCK)
+    if silent.shape != (AUDIO_BLOCK, 2) or not np.isfinite(silent).all():
+        raise RuntimeError("FluidSynthBackend fallback render gecersiz")
+
+    print(f"[8/{total_steps}] Jest ifade (surekli kontrol) testi")
+    gesture_state = RuntimeState()
+    gesture_audio = AudioEngine(gesture_state)
+    controller = GestureController(gesture_state, gesture_audio)
+    for cx in (100, 260):
+        fake_hand = HandPacket(
+            label="RIGHT", landmarks=[(0, 0)] * 21, normalized=[(0.0, 0.0, 0.0)] * 21,
+            gesture="NEUTRAL", confidence=0.9, openness=1.1, pinch=0.6,
+            fingers=(True, True, True, True, True), palm_center=(cx, 100), hand_size=120.0,
+        )
+        controller.update([fake_hand])
+    if not (0.0 <= gesture_audio.synth.brightness <= 1.0):
+        raise RuntimeError("Parlaklik kontrolu araligin disinda")
+    if not (0.0 <= gesture_audio.synth.articulation <= 1.0):
+        raise RuntimeError("Artikulasyon kontrolu araligin disinda")
+
+    print(f"[9/{total_steps}] Ayar kalicilik (config) testi")
+    test_config_path = CONFIG_PATH.with_name("harmoni_config.selftest.json")
+    try:
+        cfg = dict(DEFAULT_CONFIG)
+        cfg["theme_index"] = 3
+        cfg["piano_volume"] = 0.31
+        save_config(cfg, path=test_config_path)
+        reloaded = load_config(path=test_config_path)
+        if reloaded["theme_index"] != 3 or abs(float(reloaded["piano_volume"]) - 0.31) > 1e-9:
+            raise RuntimeError("Config round-trip basarisiz")
+    finally:
+        if test_config_path.exists():
+            test_config_path.unlink()
+
+    print(f"[10/{total_steps}] MIDI disa aktarim testi")
+    if MIDO_AVAILABLE:
+        midi_state = RuntimeState()
+        midi_synth = SynthEngine(midi_state)
+        midi_synth.full_orchestra()
+        midi_synth.start_midi_capture()
+        for _ in range(40):
+            midi_synth.render(AUDIO_BLOCK)
+        events = midi_synth.stop_midi_capture()
+        if not events:
+            raise RuntimeError("MIDI olay kaydi bos")
+        midi_path = Path(__file__).with_name("harmoni_selftest.mid")
+        try:
+            if not export_midi(midi_path, events, 90.0):
+                raise RuntimeError("export_midi basarisiz oldu")
+            exported = mido.MidiFile(str(midi_path))
+            note_ons = sum(1 for msg in exported.tracks[0] if msg.type == "note_on")
+            if note_ons == 0:
+                raise RuntimeError("Yazilan MIDI dosyasinda note_on bulunamadi")
+        finally:
+            if midi_path.exists():
+                midi_path.unlink()
+    else:
+        print("    mido kurulu degil, MIDI export testi atlandi (pip install mido)")
+
+    print(f"[11/{total_steps}] WAV kayit testi")
+    wav_state = RuntimeState()
+    wav_audio = AudioEngine(wav_state)
+    wav_audio.start_wav_capture()
+    for _ in range(20):
+        block = np.random.uniform(-0.2, 0.2, size=(AUDIO_BLOCK, 2)).astype(np.float32)
+        wav_audio._wav_frames.append(block)
+    wav_frames = wav_audio.stop_wav_capture()
+    if wav_frames is None or wav_frames.shape[0] != 20 * AUDIO_BLOCK:
+        raise RuntimeError("WAV kayit tamponu beklenen uzunlukta degil")
+    wav_path = Path(__file__).with_name("harmoni_selftest.wav")
+    try:
+        pcm16 = (np.clip(wav_frames, -1.0, 1.0) * 32767.0).astype(np.int16)
+        with wave.open(str(wav_path), "wb") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(AUDIO_SR)
+            handle.writeframes(pcm16.tobytes())
+        with wave.open(str(wav_path), "rb") as handle:
+            if handle.getnchannels() != 2 or handle.getnframes() != 20 * AUDIO_BLOCK:
+                raise RuntimeError("Yazilan WAV dosyasi beklenen formatta degil")
+    finally:
+        if wav_path.exists():
+            wav_path.unlink()
+
+    print(f"[12/{total_steps}] Makam olcek butunlugu testi")
+    for makam_name, intervals in MAKAM_SCALES_KOMA.items():
+        if sum(intervals) != 53:
+            raise RuntimeError(f"{makam_name} araliklari 53 komaya tamamlanmiyor: {sum(intervals)}")
+        degrees = makam_scale_degrees_komas(makam_name)
+        if len(degrees) != 7 or degrees[0] != 0 or len(set(degrees)) != 7:
+            raise RuntimeError(f"{makam_name} perde konumlari gecersiz: {degrees}")
+
+    print(f"[13/{total_steps}] Makam algilama testi")
+    makam_state = RuntimeState()
+    with makam_state.lock:
+        makam_state.music.tonal_system = "makam"
+    makam_harmony = HarmonyEngine(makam_state)
+    tonic_midi = 62.0
+    hicaz_notes = [tonic_midi + komas_to_semitones(o) for o in makam_scale_degrees_komas("HICAZ")]
+    phrase = hicaz_notes + [hicaz_notes[4], hicaz_notes[2], hicaz_notes[0], hicaz_notes[0]]
+    base_now = time.monotonic()
+    for rep in range(10):
+        for offset, m in enumerate(phrase):
+            fake_time = base_now + (rep * len(phrase) + offset) * 0.12
+            makam_harmony.update(PitchSnapshot(
+                frequency=midi_to_frequency(m), midi_note=int(round(m)), confidence=0.9, rms=0.08,
+                voiced=True, timestamp=fake_time,
+            ))
+            makam_harmony.last_key_update = fake_time - 0.6
+            makam_harmony.last_chord_change = fake_time - 1.0
+            makam_harmony.started = fake_time - 1.0
+    with makam_state.lock:
+        if not makam_state.music.makam_degrees:
+            raise RuntimeError("Makam motoru perde uretmedi")
+
+    print(f"[14/{total_steps}] Baglama (Karplus-Strong) sentez testi")
+    baglama_state = RuntimeState()
+    baglama_synth = SynthEngine(baglama_state)
+    baglama_synth.trigger(62.3, "baglama", velocity=0.6, duration=0.3, pan=0.0)
+    baglama_out = baglama_synth.render(AUDIO_BLOCK)
+    if baglama_out.shape != (AUDIO_BLOCK, 2) or not np.isfinite(baglama_out).all():
+        raise RuntimeError("Baglama sentezi gecersiz sinyal uretti")
+
+    print(f"[15/{total_steps}] Perde adi testi")
+    rast_name, rast_offset = nearest_perde_name(midi_to_frequency(PERDE_REFERENCE_MIDI))
+    if rast_name != "Rast" or abs(rast_offset) > 5.0:
+        raise RuntimeError(f"Rast referansi yanlis cozumlendi: {rast_name} {rast_offset:+0.1f}c")
+    dugah_name, dugah_offset = nearest_perde_name(midi_to_frequency(PERDE_REFERENCE_MIDI + komas_to_semitones(9)))
+    if dugah_name != "Dugah" or abs(dugah_offset) > 5.0:
+        raise RuntimeError(f"Dugah referansi yanlis cozumlendi: {dugah_name} {dugah_offset:+0.1f}c")
+
+    print(f"[16/{total_steps}] Yeni orkestra sesleri (nefesli/bakir/ney) testi")
+    winds_state = RuntimeState()
+    winds_synth = SynthEngine(winds_state)
+    for kind, note in (("flute", 69.0), ("brass", 57.0), ("ney", 64.3)):
+        winds_synth.trigger(note, kind, velocity=0.5, duration=0.3, pan=0.0)
+    winds_out = []
+    for _ in range(15):
+        winds_out.append(winds_synth.render(AUDIO_BLOCK))
+    winds_arr = np.concatenate(winds_out, axis=0)
+    if not np.isfinite(winds_arr).all():
+        raise RuntimeError("Yeni orkestra sesleri gecersiz sinyal uretti")
+
+    print(f"[17/{total_steps}] Katman sayisi kazanc telafisi testi")
+
+    def _measure_rms(layers: Set[str]) -> float:
+        gain_state = RuntimeState()
+        gain_synth = SynthEngine(gain_state)
+        gain_synth.set_layers(layers)
+        blocks = [gain_synth.render(AUDIO_BLOCK) for _ in range(80)]
+        return float(np.sqrt(np.mean(np.concatenate(blocks, axis=0) ** 2)))
+
+    rms_five = _measure_rms({"PIANO", "STRINGS", "BASS", "DRUMS", "PAD"})
+    rms_nine = _measure_rms({"PIANO", "STRINGS", "BASS", "DRUMS", "PAD", "BAGLAMA", "WOODWINDS", "BRASS", "NEY"})
+    if rms_five <= 0.0:
+        raise RuntimeError("Referans katman seviyesi olcuulemedi")
+    ratio = rms_nine / rms_five
+    if not (0.7 <= ratio <= 1.3):
+        raise RuntimeError(f"9 katman / 5 katman ses orani beklenen araligin disinda: {ratio:0.2f}")
+
+    print(f"[18/{total_steps}] Otomatik duzenleme (AutoArranger) testi")
+    arrange_state = RuntimeState()
+    arrange_synth = SynthEngine(arrange_state)
+    arranger = AutoArranger(arrange_state, arrange_synth)
+    with arrange_state.lock:
+        arrange_state.music.tonal_system = "makam"
+        arrange_state.music.bpm = 72.0
+        arrange_state.music.rhythm_feel = "duz"
+    arranger.last_applied = 0.0
+    arranger.update()
+    with arrange_state.lock:
+        alaturka_layers = set(arrange_state.active_layers)
+    if not {"BAGLAMA", "NEY", "PAD"}.issubset(alaturka_layers) or "DRUMS" in alaturka_layers:
+        raise RuntimeError(f"Alaturka senaryosunda beklenen katman seti gelmedi: {alaturka_layers}")
+    enabled_after_toggle = arranger.toggle()
+    if enabled_after_toggle:
+        raise RuntimeError("AutoArranger.toggle() kapatmadi")
+
+    print(f"[19/{total_steps}] Dizi rengi (mode color) testi")
+    mode_state = RuntimeState()
+    mode_harmony = HarmonyEngine(mode_state)
+    with mode_state.lock:
+        mode_state.music.key_root = 2  # D
+    expected_sequence = ["major", "minor", "dorian", "mixolydian", "auto"]
+    actual_sequence = [mode_harmony.cycle_mode_color() for _ in expected_sequence]
+    if actual_sequence != expected_sequence:
+        raise RuntimeError(f"Dizi rengi dongusu beklenmedik sirada: {actual_sequence}")
+    dorian_triads = mode_harmony._diatonic_triads(2, "dorian")
+    dorian_names = [name for name, _notes, _root, _degree in dorian_triads]
+    if dorian_names[:4] != ["Dm", "Em", "F", "G"]:
+        raise RuntimeError(f"D Dorian akorlari yanlis: {dorian_names}")
+
+    print(f"[20/{total_steps}] Yeni enstruman ve klavye kisayolu testi")
+    extra_state = RuntimeState()
+    extra_synth = SynthEngine(extra_state)
+    for kind, note in (("guitar", 57.0), ("keman", 69.0), ("davul", 40.0), ("davul", 64.0)):
+        extra_synth.trigger(note, kind, velocity=0.5, duration=0.3, pan=0.0)
+    extra_out = [extra_synth.render(AUDIO_BLOCK) for _ in range(15)]
+    if not np.isfinite(np.concatenate(extra_out, axis=0)).all():
+        raise RuntimeError("Gitar/keman/davul gecersiz sinyal uretti")
+    expected_layers = {
+        "PIANO", "BAGLAMA", "NEY", "WOODWINDS", "BRASS", "STRINGS",
+        "KEMAN", "GITAR", "PAD", "BASS", "DRUMS", "DAVUL",
+    }
+    mapped_layers = {layer for layer, _label in LAYER_KEYS.values()}
+    if mapped_layers != expected_layers:
+        raise RuntimeError(f"LAYER_KEYS beklenen 12 katmani tam kapsamiyor: {mapped_layers}")
+    if len(LAYER_KEYS) != len(expected_layers):
+        raise RuntimeError("LAYER_KEYS icinde tekrar eden veya eksik tus var")
+
+    print(f"[21/{total_steps}] Orkestra oda reverb'i testi")
+    reverb_state = RuntimeState()
+    with reverb_state.lock:
+        reverb_state.music.chord_notes = ()  # otomatik zamanlayiciyi etkisiz birak
+    reverb_synth = SynthEngine(reverb_state)
+    reverb_synth.trigger(60.0, "strings", velocity=0.8, duration=0.3, pan=0.0)
+    reverb_blocks = [reverb_synth.render(AUDIO_BLOCK) for _ in range(120)]
+    reverb_all = np.concatenate(reverb_blocks, axis=0)
+    if not np.isfinite(reverb_all).all():
+        raise RuntimeError("Orkestra reverb'i gecersiz sinyal uretti")
+    early_rms = float(np.sqrt(np.mean(np.concatenate(reverb_blocks[2:6], axis=0) ** 2)))
+    late_rms = float(np.sqrt(np.mean(np.concatenate(reverb_blocks[-6:], axis=0) ** 2)))
+    if late_rms >= early_rms:
+        raise RuntimeError(f"Reverb kuyrugu sonmuyor: erken={early_rms:.5f} gec={late_rms:.5f}")
+
+    print(f"[22/{total_steps}] Dusuk gecikme (WASAPI) baslatma testi")
+    latency_state = RuntimeState()
+    latency_audio = AudioEngine(latency_state)
+    latency_ok = latency_audio.start(low_latency=True)
+    latency_audio.stop()
+    if SOUNDDEVICE_AVAILABLE and not latency_ok:
+        raise RuntimeError("--low-latency ile baslatma basarisiz oldu (donanimsiz ortamda dahi normal moda dusmeli)")
+
+    print(f"[23/{total_steps}] Kamera backend yedekleme testi")
+    dummy_state = RuntimeState()
+    dummy_camera = CameraWorker(9999, 320, 240, 15, dummy_state)
+    backends = dummy_camera._candidate_backends()
+    if not backends:
+        raise RuntimeError("Kamera backend listesi bos")
+    if dummy_camera._open():
+        raise RuntimeError("Var olmayan kamera indeksi basariyla acilmamali")
+    if not dummy_camera.last_error:
+        raise RuntimeError("Basarisiz kamera acilisi bir hata mesaji birakmali")
+
+    print(f"[24/{total_steps}] Renderer performance test")
     bench_state = RuntimeState()
     bench_audio = AudioEngine(bench_state)
     bench_renderer = HUDRenderer(bench_state, bench_audio)
@@ -2171,7 +4000,7 @@ def run_self_test() -> int:
     if render_fps < 10.0:
         raise RuntimeError(f"Renderer too slow: {render_fps:0.1f} fps")
 
-    print("[7/7] HUD preview")
+    print(f"[25/{total_steps}] HUD preview")
     preview = Path(__file__).with_name("harmoni_preview.png")
     create_preview(preview)
     print(f"Self test passed. Preview: {preview}")
@@ -2180,12 +4009,17 @@ def run_self_test() -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="HARMONI")
-    parser.add_argument("--camera", type=int, default=CAMERA_INDEX, help="OpenCV camera index")
+    parser.add_argument("--camera", type=str, default=None, help="OpenCV camera index veya 'auto' (belirtilmezse son oturumdaki index kullanilir)")
     parser.add_argument("--demo", action="store_true", help="Kamera olmadan gorsel demo arka plani")
     parser.add_argument("--self-test", action="store_true", help="Donanim acmadan cekirdek testleri calistir")
-    parser.add_argument("--performance", choices=("fast", "balanced", "quality"), default="balanced", help="Kamera/el takip performans profili")
-    parser.add_argument("--piano-volume", type=float, default=0.27, help="Piyano ana seviyesi, 0.08-0.46")
+    parser.add_argument("--performance", choices=("fast", "balanced", "quality"), default=None, help="Kamera/el takip performans profili (belirtilmezse son oturumdaki profil kullanilir)")
+    parser.add_argument("--piano-volume", type=float, default=None, help="Piyano ana seviyesi, 0.08-0.46 (belirtilmezse son oturumdaki seviye kullanilir)")
     parser.add_argument("--no-monitor", action="store_true", help="Canli vokal monitoring kapali baslat")
+    parser.add_argument("--soundfont", type=str, default=None, help="Opsiyonel .sf2 soundfont dosya yolu (pyfluidsynth gerektirir)")
+    parser.add_argument("--reset-config", action="store_true", help="Kaydedilmis ayarlari yok sayip varsayilanlarla baslat")
+    parser.add_argument("--low-latency", action="store_true", help="Windows'ta WASAPI exclusive modu dene (daha dusuk ses gecikmesi; aygit baskasi tarafindan kullaniliyorsa otomatik olarak normal moda duser)")
+    parser.add_argument("--resolution", choices=tuple(RESOLUTION_PRESETS.keys()), default=None, help="Kameradan istenecek yakalama cozunurlugu (varsayilan: --performance profiline gore). HUD her zaman 1280x720 tasarim cozunurlugunde bilesimlenir; daha yuksek deger el takibi/goruntu netligi icin daha detayli bir kaynak saglar ama pencere boyutunu degistirmez.")
+    parser.add_argument("--ui-mode", choices=("simple", "advanced"), default=None, help="Baslangic arayuz modu: simple (kamera + buyuk nota/eslik gostergesi, varsayilan) veya advanced (tam gosterge paneli). Calisirken Tab ile ikisi arasinda gecilebilir.")
     return parser.parse_args()
 
 
@@ -2201,9 +4035,42 @@ def main() -> int:
         print("[UYARI] sounddevice yuklenemedi. Mikrofon ve ses cikisi devre disi.")
         print("Kurulum: python -m pip install sounddevice")
 
-    app = HarmoniApp(camera_index=args.camera, demo=args.demo, performance=args.performance, piano_volume=args.piano_volume)
-    if args.no_monitor:
-        app.audio.dsp.monitor_enabled = False
+    config = dict(DEFAULT_CONFIG) if args.reset_config else load_config()
+    if args.camera is not None:
+        camera_index = None if args.camera.strip().lower() == "auto" else int(args.camera)
+    else:
+        camera_index = int(config.get("camera_index", CAMERA_INDEX))
+    performance = args.performance if args.performance is not None else str(config.get("performance", "balanced"))
+    piano_volume = args.piano_volume if args.piano_volume is not None else float(config.get("piano_volume", 0.30))
+    theme_index = int(config.get("theme_index", 0))
+    monitor_enabled = bool(config.get("monitor_enabled", True)) and not args.no_monitor
+    mirror = bool(config.get("mirror", True))
+    resolution = args.resolution if args.resolution is not None else (str(config.get("resolution", "")) or None)
+    if args.ui_mode is not None:
+        simple_mode = args.ui_mode == "simple"
+    else:
+        simple_mode = bool(config.get("simple_mode", True))
+
+    app = HarmoniApp(
+        camera_index=camera_index,
+        demo=args.demo,
+        performance=performance,
+        piano_volume=piano_volume,
+        theme_index=theme_index,
+        monitor_enabled=monitor_enabled,
+        mirror=mirror,
+        low_latency=args.low_latency,
+        resolution=resolution,
+        simple_mode=simple_mode,
+    )
+    if args.soundfont:
+        backend = FluidSynthBackend(args.soundfont, AUDIO_SR)
+        if backend.available:
+            app.audio.synth.attach_fluidsynth(backend)
+            print(f"[BILGI] Soundfont yuklendi: {args.soundfont}")
+        else:
+            print(f"[UYARI] Soundfont etkinlestirilemedi: {backend.error}")
+            print("Procedural sentezleyici ile devam ediliyor.")
     try:
         app.run()
     except KeyboardInterrupt:

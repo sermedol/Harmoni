@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harmoni"
+version = "3.8.0"
+description = "Kamera ile el takibi, mikrofondan canli vokal analizi ve otomatik piyano/orkestra esligi ureten tek dosyali masaustu Python uygulamasi."
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = { text = "MIT" }
+authors = [{ name = "Harmoni Contributors" }]
+keywords = ["mediapipe", "hand-tracking", "pitch-detection", "music", "opencv", "audio"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video :: Capture",
+]
+dependencies = [
+    "numpy>=1.26,<3",
+    "opencv-python>=4.10,<5",
+    "mediapipe>=0.10.14,<0.11",
+    "sounddevice>=0.5,<0.6",
+    "scipy>=1.11,<2",
+]
+
+[project.optional-dependencies]
+extra = [
+    "torch>=2.2",
+    "torchcrepe>=0.0.23",
+    "pedalboard>=0.9",
+    "mido>=1.3",
+    "pyfluidsynth>=1.3",
+]
+dev = [
+    "ruff>=0.6",
+]
+
+[project.scripts]
+harmoni = "harmoni:main"
+
+[tool.setuptools]
+py-modules = ["harmoni"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E741"]

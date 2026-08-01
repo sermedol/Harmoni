@@ -1,6 +1,8 @@
-# İleri sürümde daha güçlü pitch takibi ve VST efekt desteği için:
+# Su anda harmoni.py tarafindan kullanilan opsiyonel paketler:
+mido>=1.3            # R ile kayitta MIDI disa aktarim (kurulu degilse sessizce atlanir)
+pyfluidsynth>=1.3     # --soundfont ile gercek .sf2 enstruman sesi (kurulu degilse procedural synth kullanilir)
+
+# Ileri surumde daha guclu pitch takibi ve VST efekt destegi icin (henuz koda baglanmadi):
 torch>=2.2
 torchcrepe>=0.0.23
 pedalboard>=0.9
-mido>=1.3
-pyfluidsynth>=1.3

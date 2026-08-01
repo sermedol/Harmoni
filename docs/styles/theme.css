@@ -1,0 +1,106 @@
+/* Harmoni web - tema sistemi. Renkler harmoni.py'deki THEMES tablosundan
+   (BGR->RGB donusumu ile) birebir alinmistir. */
+
+:root,
+:root[data-theme="midnight"] {
+  --bg: #101218;
+  --panel: #1c1f28;
+  --panel2: #3a404e;
+  --text: #e6e9f0;
+  --muted: #afb4c0;
+  --primary: #38bdf8;
+  --secondary: #a78bfa;
+  --accent: #facc15;
+  --danger: #f87171;
+  --success: #4ade80;
+  --warning: #fb923c;
+  --theme-dark: 1;
+}
+
+:root[data-theme="studio"] {
+  --bg: #141211;
+  --panel: #201d1b;
+  --panel2: #403a34;
+  --text: #f0ebe1;
+  --muted: #beb4aa;
+  --primary: #f59e0b;
+  --secondary: #fb7142;
+  --accent: #2dd4bf;
+  --danger: #ef4444;
+  --success: #a3e635;
+  --warning: #facc15;
+  --theme-dark: 1;
+}
+
+:root[data-theme="anadolu"] {
+  --bg: #18110f;
+  --panel: #261b17;
+  --panel2: #4a382e;
+  --text: #f5e8dc;
+  --muted: #c4ac9e;
+  --primary: #e07a3f;
+  --secondary: #2da699;
+  --accent: #e8b54a;
+  --danger: #d64541;
+  --success: #8cbd58;
+  --warning: #e69f4a;
+  --theme-dark: 1;
+}
+
+:root[data-theme="daylight"] {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --panel2: #e2e5ea;
+  --text: #1e2128;
+  --muted: #6e7480;
+  --primary: #4f46e5;
+  --secondary: #0ea5e9;
+  --accent: #d97706;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #ca8a04;
+  --theme-dark: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+.soft-card {
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--panel2) 80%, transparent);
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  padding: 14px 18px;
+  backdrop-filter: blur(6px);
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.card-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}

@@ -1,0 +1,11 @@
+.claude/
+__pycache__/
+*.pyc
+harmoni_config.json
+harmoni_captures/
+*.egg-info/
+build/
+dist/
+.buildvenv/
+.mypy_cache/
+.ruff_cache/
