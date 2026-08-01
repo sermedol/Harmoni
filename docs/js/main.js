@@ -3,7 +3,7 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260801-13";
 import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js";
 import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js";
 import { GENRES, getGenre } from "./constants/genres.js";
@@ -15,7 +15,7 @@ import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-10";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-13";
 import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;

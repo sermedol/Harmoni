@@ -113,7 +113,7 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
       ctx.fillStyle = level > 0.82 ? theme.warning : theme.primary;
       ctx.fill();
     }
-    label(ctx, `Giriş  %${Math.round(level * 100)}`, meterX, 89, 11, level > 0.03 ? theme.text : theme.muted, "600");
+    label(ctx, level > 0.03 ? "Sinyal alınıyor" : "Mikrofon hazır", meterX, 89, 11, level > 0.03 ? theme.text : theme.muted, "600");
   }
 
   // ---- Sol alt: durum + jest ----

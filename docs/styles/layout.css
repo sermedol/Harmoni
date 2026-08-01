@@ -896,6 +896,26 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
   .feza-signature { display:none; }
 }
 
+/* Giriş kartı her ekranda tam merkezde. */
+.start-overlay {
+  align-items:center !important;
+  justify-content:center !important;
+  padding:16px !important;
+}
+.start-panel { margin:0 !important; }
+
+/* Bordo temada derinlik ve kontrollü kırmızı ışık. */
+:root[data-theme="midnight"] .stage::after,
+:root:not([data-theme]) .stage::after {
+  background:
+    radial-gradient(circle at 50% 12%,rgba(143,41,66,.18),transparent 35%),
+    linear-gradient(180deg,rgba(13,8,10,.18),transparent 32%,rgba(13,8,10,.34));
+}
+:root[data-theme="midnight"] .options-panel,
+:root:not([data-theme]) .options-panel {
+  box-shadow:0 30px 90px rgba(8,3,5,.68),inset 0 1px 0 rgba(255,235,240,.06);
+}
+
 /* Bilgilendirici giriş kartı */
 .start-overlay { padding-bottom:clamp(28px,7vh,74px); }
 .start-panel { width:min(92vw,420px); padding:18px; border-radius:25px; }
