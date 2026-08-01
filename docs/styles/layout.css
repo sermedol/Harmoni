@@ -649,8 +649,8 @@ body:not(.started) .rec-badge {
 .start-features {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin: 20px 0;
+  gap: 14px;
+  margin: 24px 0;
   animation: featuresSlideIn 0.8s ease-out 0.5s both;
 }
 
@@ -665,45 +665,56 @@ body:not(.started) .rec-badge {
 
 .feature-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 12px;
-  background: linear-gradient(135deg, rgba(224, 122, 63, 0.1) 0%, rgba(45, 26, 25, 0.2) 100%);
-  border: 1px solid rgba(224, 122, 63, 0.15);
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.15) 0%, rgba(45, 26, 25, 0.25) 100%);
+  border: 2px solid rgba(224, 122, 63, 0.25);
   border-radius: 12px;
-  font-size: 12px;
-  color: var(--muted);
+  color: var(--text);
   cursor: default;
   transition: all 0.3s ease;
-  text-align: center;
 }
 
 .feature-item:hover {
-  background: linear-gradient(135deg, rgba(224, 122, 63, 0.2) 0%, rgba(45, 26, 25, 0.3) 100%);
-  border-color: rgba(224, 122, 63, 0.3);
-  transform: translateY(-4px);
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.25) 0%, rgba(45, 26, 25, 0.35) 100%);
+  border-color: rgba(224, 122, 63, 0.45);
+  transform: translateX(4px);
 }
 
 .feature-icon {
-  font-size: 28px;
+  font-size: 32px;
+  flex-shrink: 0;
   transition: transform 0.3s ease;
 }
 
 .feature-item:hover .feature-icon {
-  transform: scale(1.2);
+  transform: scale(1.15) rotate(5deg);
 }
 
-.start-mode-select {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 16px 0;
-  animation: modeSelectFadeIn 0.8s ease-out 0.55s both;
+.feature-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
 }
 
-@keyframes modeSelectFadeIn {
+.feature-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.start-cta {
+  margin: 20px 0;
+  animation: ctaFadeIn 0.8s ease-out 0.58s both;
+}
+
+@keyframes ctaFadeIn {
   from {
     opacity: 0;
     transform: translateY(10px);
@@ -714,41 +725,54 @@ body:not(.started) .rec-badge {
   }
 }
 
-.start-mode-select label {
+.cta-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.start-mode-select {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mode-option {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, rgba(224, 122, 63, 0.08) 0%, rgba(45, 26, 25, 0.1) 100%);
-  border: 2px solid rgba(224, 122, 63, 0.2);
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.12) 0%, rgba(45, 26, 25, 0.15) 100%);
+  border: 2px solid rgba(224, 122, 63, 0.25);
   border-radius: 12px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
   transition: all 0.3s ease;
   position: relative;
 }
 
-.start-mode-select label:hover {
-  background: linear-gradient(135deg, rgba(224, 122, 63, 0.15) 0%, rgba(45, 26, 25, 0.2) 100%);
+.mode-option:hover {
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.2) 0%, rgba(45, 26, 25, 0.25) 100%);
   border-color: rgba(224, 122, 63, 0.4);
-  transform: translateX(4px);
+  transform: translateX(6px);
 }
 
-.start-mode-select input[type="radio"] {
+.mode-option input[type="radio"] {
   accent-color: #e07a3f;
   cursor: pointer;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
-.start-mode-select input[type="radio"]:checked + span::after {
-  content: '✓';
-  position: absolute;
-  right: 12px;
+.mode-option input[type="radio"]:checked + span {
   color: #e07a3f;
-  font-weight: bold;
+  font-weight: 700;
 }
 
 .start-button {

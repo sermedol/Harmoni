@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="harmoni-build" content="20260801-v1">
+<meta name="harmoni-build" content="20260801-v3">
 <title>Harmoni — El hareketleriyle canlı orkestra eşliği</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gerçek zamanlı piyano/orkestra eşliği üreten tarayıcı tabanlı müzik aracı." />
 <link rel="icon" href="data:," />
@@ -203,38 +203,52 @@
           <div id="typewriter-text" class="typewriter-text"></div>
         </div>
         <div class="start-panel soft-card" id="start-panel-content" hidden>
-          <div class="start-brand">HARMONİ</div>
-          <div class="start-tagline">Sesinle eşlik oluştur.</div>
-          <div class="start-subtitle">Ellerinle orkestrayı yönet.</div>
+          <div class="start-brand">🎼 HARMONİ 🎼</div>
+          <div class="start-tagline">El Hareketleriyle Canlı Orkestra Eşliği</div>
 
           <div class="start-features">
             <div class="feature-item">
               <span class="feature-icon">📷</span>
-              <span class="feature-text">Kamera izni</span>
+              <div>
+                <strong>Kamera Takibi</strong>
+                <span class="feature-desc">El hareketlerinizi algıla</span>
+              </div>
             </div>
             <div class="feature-item">
               <span class="feature-icon">🎤</span>
-              <span class="feature-text">Mikrofon izni</span>
+              <div>
+                <strong>Ses Analizi</strong>
+                <span class="feature-desc">Vokalini orkestraya eşle</span>
+              </div>
             </div>
             <div class="feature-item">
               <span class="feature-icon">🎵</span>
-              <span class="feature-text">Orkestra</span>
+              <div>
+                <strong>Canlı Orkestra</strong>
+                <span class="feature-desc">12 enstrüman katmanı</span>
+              </div>
             </div>
             <div class="feature-item">
-              <span class="feature-icon">🎧</span>
-              <span class="feature-text">Kulaklık (isteğe bağlı)</span>
+              <span class="feature-icon">✋</span>
+              <div>
+                <strong>Jestler</strong>
+                <span class="feature-desc">Doğal el hareketi kontrol</span>
+              </div>
             </div>
           </div>
 
-          <div class="start-mode-select">
-            <label>
-              <input type="radio" name="start-mode" value="voice" checked>
-              <span>Sesinle oyun (ses analizi)</span>
-            </label>
-            <label>
-              <input type="radio" name="start-mode" value="gesture">
-              <span>Jestlerle oyun (el hareketi)</span>
-            </label>
+          <div class="start-cta">
+            <div class="cta-text">Seçin:</div>
+            <div class="start-mode-select">
+              <label class="mode-option">
+                <input type="radio" name="start-mode" value="voice" checked>
+                <span>🎤 Sesinle Oyun (Vokal Analizi)</span>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="start-mode" value="gesture">
+                <span>✋ Jestlerle Oyun (El Hareketi)</span>
+              </label>
+            </div>
           </div>
 
           <button id="start-button" class="start-button primary">PERFORMANSI BAŞLAT</button>
