@@ -919,6 +919,97 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
 /* Feza imzası giriş kartında yer alır; analiz şeridi açılınca tekrarlanmaz. */
 body.started .feza-signature { display:none; }
 
+/* FEZA / HARMONI — cihaz arayüzü */
+.stage::before {
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:2;
+  pointer-events:none;
+  opacity:.28;
+  background-image:
+    linear-gradient(rgba(217,75,100,.06) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(217,75,100,.06) 1px,transparent 1px),
+    linear-gradient(90deg,transparent 49.9%,rgba(231,160,174,.13) 50%,transparent 50.1%);
+  background-size:64px 64px,64px 64px,100% 100%;
+  mask-image:linear-gradient(to bottom,rgba(0,0,0,.55),transparent 62%);
+}
+.soft-card {
+  border-radius:5px;
+  background:color-mix(in srgb,var(--panel) 91%,transparent);
+  border-color:color-mix(in srgb,var(--primary) 17%,var(--panel2));
+  box-shadow:0 18px 48px rgba(7,2,4,.42);
+  backdrop-filter:blur(14px) saturate(1.08);
+}
+.panel-toggle {
+  border-radius:3px;
+  border-left:2px solid var(--primary);
+  background:rgba(19,10,14,.86);
+  letter-spacing:.15em;
+  clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
+}
+.options-panel {
+  border-radius:0;
+  clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px));
+  background:linear-gradient(160deg,rgba(27,15,20,.97),rgba(12,7,9,.96));
+  border-left:2px solid color-mix(in srgb,var(--primary) 60%,transparent);
+}
+.panel-title {
+  font-family:"Arial Narrow","Segoe UI Variable",sans-serif;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.2em;
+  border-bottom:1px solid color-mix(in srgb,var(--primary) 18%,transparent);
+}
+.panel-section-title { color:var(--primary); letter-spacing:.16em; }
+.option-row select,.option-button,.instrument-chip {
+  border-radius:2px;
+  background:rgba(62,34,44,.48);
+  border-color:rgba(231,160,174,.12);
+  box-shadow:none;
+}
+.option-row select:hover,.option-button:hover,.instrument-chip:hover {
+  background:rgba(86,38,53,.55);
+  border-color:rgba(217,75,100,.48);
+}
+.instrument-chip.active {
+  background:linear-gradient(90deg,rgba(143,41,66,.48),rgba(56,35,44,.55));
+  box-shadow:inset 2px 0 0 var(--primary);
+}
+.instrument-chip .chip-dot { border-radius:1px; }
+.panel-close,#guide-close { border-radius:2px; }
+.guide-panel {
+  border-radius:0;
+  clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px));
+  border-left:2px solid var(--primary);
+  background:linear-gradient(155deg,rgba(27,15,20,.98),rgba(11,6,8,.98));
+}
+.start-panel {
+  border-radius:0;
+  clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px));
+  border-left:2px solid var(--primary);
+  background:linear-gradient(150deg,rgba(28,15,20,.96),rgba(12,7,9,.94));
+}
+.start-guide-title { align-items:center; }
+.start-guide-title span { color:var(--primary); }
+.start-guide-title b { font-family:"Arial Narrow","Segoe UI Variable",sans-serif; text-transform:uppercase; letter-spacing:.06em; font-size:16px; }
+.start-guide-list>div { border-radius:2px; border-left:1px solid transparent; }
+.start-guide-list>div:hover { border-left-color:var(--primary); background:rgba(87,35,50,.35); }
+.start-guide-list i { border-radius:2px; background:rgba(143,41,66,.28); }
+.start-launch {
+  border-radius:2px;
+  background:linear-gradient(90deg,rgba(143,41,66,.48),rgba(37,21,27,.86));
+  clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%);
+}
+.start-launch i { border-radius:1px; }
+.guide-action { background:linear-gradient(90deg,rgba(143,41,66,.38),rgba(56,35,44,.48)); }
+kbd { border-radius:1px; background:#120a0d; border-color:rgba(231,160,174,.2); }
+
+@media (max-width:480px) {
+  .stage::before { background-size:40px 40px,40px 40px,100% 100%; }
+  .options-panel,.start-panel,.guide-panel { clip-path:none; border-left-width:1px; }
+}
+
 /* Bilgilendirici giriş kartı */
 .start-overlay { padding-bottom:clamp(28px,7vh,74px); }
 .start-panel { width:min(92vw,420px); padding:18px; border-radius:25px; }

@@ -21,22 +21,45 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+function chamferRect(ctx, x, y, w, h, cut = 10) {
+  const c = Math.min(cut, w / 4, h / 4);
+  ctx.beginPath();
+  ctx.moveTo(x + c, y);
+  ctx.lineTo(x + w - c, y);
+  ctx.lineTo(x + w, y + c);
+  ctx.lineTo(x + w, y + h - c);
+  ctx.lineTo(x + w - c, y + h);
+  ctx.lineTo(x + c, y + h);
+  ctx.lineTo(x, y + h - c);
+  ctx.lineTo(x, y + c);
+  ctx.closePath();
+}
+
 function card(ctx, x, y, w, h, theme, { accent = null, alpha = 0.82 } = {}) {
   ctx.save();
   ctx.globalAlpha = alpha;
-  roundRect(ctx, x, y, w, h, 14);
+  chamferRect(ctx, x, y, w, h, 10);
   ctx.fillStyle = theme.panel;
   ctx.fill();
-  ctx.globalAlpha = alpha * 0.75;
+  ctx.globalAlpha = alpha * 0.68;
   ctx.lineWidth = 1;
   ctx.strokeStyle = theme.panel2;
   ctx.stroke();
   if (accent) {
-    // Ust kenarda ince aksan seridi.
     ctx.globalAlpha = 1;
-    roundRect(ctx, x, y, w, 3, 2);
-    ctx.fillStyle = accent;
-    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 10, y + 1.5);
+    ctx.lineTo(x + Math.min(w * 0.42, 180), y + 1.5);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + w - 18, y + h - 1);
+    ctx.lineTo(x + w - 7, y + h - 1);
+    ctx.lineTo(x + w - 1, y + h - 7);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -57,7 +80,7 @@ function pill(ctx, x, y, text, bg, fg, size = 12) {
   const padX = 10;
   const w = measure(ctx, text, size, "600") + padX * 2;
   const h = size + 10;
-  roundRect(ctx, x, y, w, h, h / 2);
+  chamferRect(ctx, x, y, w, h, 6);
   ctx.fillStyle = bg;
   ctx.fill();
   label(ctx, text, x + padX, y + h - 7, size, fg, "600");
