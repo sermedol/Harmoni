@@ -41,6 +41,9 @@ const els = {
   guideOverlay: document.getElementById("guide-overlay"),
   startOverlay: document.getElementById("start-overlay"),
   startButton: document.getElementById("start-button"),
+  startPanel: document.getElementById("start-panel"),
+  introSequence: document.getElementById("intro-sequence"),
+  introText: document.getElementById("intro-text"),
   advVersion: document.getElementById("adv-version"),
   guideGestures: document.getElementById("guide-gestures"),
   guideKeys: document.getElementById("guide-keys"),
@@ -377,6 +380,12 @@ function renderGuide() {
 }
 
 function handleKeydown(event) {
+  if (els.startPanel?.classList.contains("intro-pending") && ["Enter", " ", "Escape"].includes(event.key)) {
+    event.preventDefault();
+    introSkipped = true;
+    revealStartPanel();
+    return;
+  }
   if (event.key === "Tab") {
     event.preventDefault();
     toggleMode();
@@ -695,6 +704,53 @@ function startExperience() {
   renderLoop();
 }
 
+let introSkipped = false;
+const introDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function revealStartPanel() {
+  if (!els.startPanel || els.startPanel.classList.contains("intro-ready")) return;
+  els.introSequence?.classList.add("is-leaving");
+  els.startPanel.classList.remove("intro-pending");
+  els.startPanel.classList.add("intro-ready");
+  els.startPanel.setAttribute("aria-hidden", "false");
+  els.startButton.disabled = false;
+  setTimeout(() => { if (els.introSequence) els.introSequence.hidden = true; }, 620);
+}
+
+async function typeIntro(text, speed) {
+  if (!els.introText) return;
+  els.introText.textContent = "";
+  for (const char of text) {
+    if (introSkipped) return;
+    els.introText.textContent += char;
+    await introDelay(speed + Math.random() * 24);
+  }
+}
+
+async function eraseIntro(speed) {
+  if (!els.introText) return;
+  while (els.introText.textContent.length) {
+    if (introSkipped) return;
+    els.introText.textContent = els.introText.textContent.slice(0, -1);
+    await introDelay(speed);
+  }
+}
+
+async function runIntroSequence() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    revealStartPanel();
+    return;
+  }
+  await introDelay(420);
+  await typeIntro("Selam,", 88);
+  await introDelay(720);
+  await eraseIntro(52);
+  await introDelay(220);
+  await typeIntro("Kafamın içine hoş geldiniz.", 62);
+  await introDelay(920);
+  revealStartPanel();
+}
+
 function bootstrap() {
   applyThemeUI();
   applyModeVisibility();
@@ -718,13 +774,18 @@ function bootstrap() {
   els.startButton.addEventListener("click", () => {
     startExperience();
   });
+  els.startOverlay.addEventListener("click", (event) => {
+    if (event.target.closest("#start-panel") || els.startPanel.classList.contains("intro-ready")) return;
+    introSkipped = true;
+    revealStartPanel();
+  });
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
   });
 
-  if (DEMO_MODE) {
-    els.startButton.textContent = "Demo modunu baslat";
-  }
+  if (DEMO_MODE) els.startButton.querySelector("span").textContent = "Feza demo modunu sunar :)";
+
+  runIntroSequence();
 }
 
 bootstrap();
