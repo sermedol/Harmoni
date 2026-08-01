@@ -3,7 +3,7 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260801-13";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260801-15";
 import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js";
 import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js";
 import { GENRES, getGenre } from "./constants/genres.js";
@@ -23,13 +23,17 @@ const CAM_HEIGHT = 720;
 const DEMO_MODE = new URLSearchParams(location.search).has("demo");
 
 const config = loadConfig();
+// Web arayuzunun tek ve kalici gorunumu: Bordo.
+// Eski oturumlardan kalmis tema tercihlerini de burada gecersiz kilariz.
+config.theme_index = 0;
 const state = createAppState();
-state.themeIndex = config.theme_index;
+state.themeIndex = 0;
 state.simpleMode = config.simple_mode;
 state.monitorEnabled = config.monitor_enabled;
 state.tonalSelection = config.tonal_selection;
 state.musicGain = config.piano_volume;
 state.genreId = config.genre_id;
+saveConfig(config);
 
 const els = {
   hudSimple: document.getElementById("hud-simple"),
@@ -125,8 +129,8 @@ function toggleMode() {
   updateOptionsPanel();
 }
 
-function cycleTheme(index) {
-  state.themeIndex = index;
+function cycleTheme() {
+  state.themeIndex = 0;
   applyThemeUI();
   persistConfig();
   updateOptionsPanel();
