@@ -17,8 +17,8 @@ export function fitCover(srcW, srcH, dstW, dstH) {
   return { sx: 0, sy: (srcH - sh) / 2, sw: srcW, sh };
 }
 
-export function buildVideoConstraints(profile, { deviceId = "", facingMode = "user" } = {}) {
-  const selection = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facingMode } };
+export function buildVideoConstraints(profile, { deviceId = "", facingMode = "" } = {}) {
+  const selection = deviceId ? { deviceId: { exact: deviceId } } : (facingMode ? { facingMode: { ideal: facingMode } } : {});
   if (!profile) return selection;
   return {
     ...selection,

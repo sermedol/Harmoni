@@ -16,6 +16,12 @@ test("device selection uses exact device id without conflicting facing mode", ()
   assert.equal(constraints.frameRate.max, 30);
 });
 
+test("default camera constraints do not force a device or facing mode", () => {
+  const constraints = buildVideoConstraints(CAMERA_PROFILES[1], {});
+  assert.equal("deviceId" in constraints, false);
+  assert.equal("facingMode" in constraints, false);
+});
+
 test("cover crop preserves aspect ratio for 4:3 camera", () => {
   const crop = fitCover(640, 480, 1280, 720);
   assert.equal(crop.sh, 360);

@@ -147,3 +147,4 @@
 - El analizi dengeli profilde 15 FPS yerine kamera kare hızına yakın çalışıyor; parmak açıklığı elin yönünden bağımsız eklem geometrisiyle sınıflandırılıyor.
 - Teknik kamera kontrolleri menüden kaldırıldı; otomatik kamera yönetimi arka planda korunuyor.
 - El iskeletindeki mikro titreşim, eklem bazlı hareket uyarlamalı filtreyle bastırıldı; hızlı hareket tepkisi korundu.
+- Kamera her açılışta sistem varsayılanını kullanıyor; görüntüdeki vignette ve üst karartma kaldırılarak doğal, filtresiz görüntü sağlandı.

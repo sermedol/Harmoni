@@ -8,15 +8,15 @@ import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "
 import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260801-25";
 import { GENRES, getGenre } from "./constants/genres.js?v=20260801-25";
 import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260801-25";
-import { loadConfig, saveConfig } from "./config.js?v=20260801-25";
+import { loadConfig, saveConfig } from "./config.js?v=20260801-29";
 import { createAppState } from "./app-state.js?v=20260801-25";
-import { Camera } from "./camera/camera.js?v=20260801-26";
-import { fitCover, shouldMirror } from "./camera/camera-math.js?v=20260801-26";
+import { Camera } from "./camera/camera.js?v=20260801-29";
+import { fitCover, shouldMirror } from "./camera/camera-math.js?v=20260801-29";
 import { HandTracker } from "./camera/hand-tracker.js?v=20260801-28";
 import { GestureController } from "./camera/gesture-controller.js?v=20260801-25";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-25";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-28";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-25";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-29";
 import { AudioGraph } from "./audio/audio-graph.js?v=20260801-25";
 import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260801-25";
 import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260801-25";
@@ -29,6 +29,10 @@ const config = loadConfig();
 // Web arayuzunun tek ve kalici gorunumu: Bordo.
 // Eski oturumlardan kalmis tema tercihlerini de burada gecersiz kilariz.
 config.theme_index = 0;
+// Kamera seçimi kullanıcıdan gizlidir: her açılışta tarayıcının/işletim
+// sisteminin varsayılan kamerası kullanılır.
+config.camera_device_id = "";
+config.camera_facing_mode = "";
 const state = createAppState();
 state.themeIndex = 0;
 state.simpleMode = true;
@@ -873,7 +877,7 @@ async function tryStartCamera(options = {}) {
   return cameraStartPromise;
 }
 
-async function tryStartCameraOnce({ facingMode = config.camera_facing_mode, deviceId = config.camera_device_id } = {}) {
+async function tryStartCameraOnce({ facingMode = config.camera_facing_mode, deviceId = "" } = {}) {
   state.capabilities.camera = "requesting";
   els.cameraRetryButton.disabled = true;
   els.cameraRetryButton.textContent = "Deneniyor...";

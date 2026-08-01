@@ -1,4 +1,4 @@
-import { CAMERA_PROFILES, buildVideoConstraints } from "./camera-math.js";
+import { CAMERA_PROFILES, buildVideoConstraints } from "./camera-math.js?v=20260801-29";
 
 const ERRORS = {
   insecure: ["Güvenli bağlantı gerekli", "Kamera yalnızca HTTPS veya localhost üzerinden çalışır."],
@@ -65,7 +65,7 @@ export class Camera extends EventTarget {
     return this.startPromise;
   }
 
-  async _start({ deviceId = "", facingMode = "user" } = {}) {
+  async _start({ deviceId = "", facingMode = "" } = {}) {
     this.stop({ preserveState: true });
     const generation = ++this.generation;
     this.error = null;

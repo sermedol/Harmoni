@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG = {
   performance: "balanced",
   input_profile: "speaker",
   camera_device_id: "",
-  camera_facing_mode: "user",
+  camera_facing_mode: "",
   camera_mirror: "auto",
   camera_performance: "auto",
   camera_diagnostics: false,

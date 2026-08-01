@@ -100,22 +100,6 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   const safe = 22;
   const accent = v.tonalSystem === "makam" ? theme.accent : theme.primary;
 
-  // Subtle cinematic framing — camera remains the interface, not a dashboard.
-  const vignette = ctx.createRadialGradient(W / 2, H * 0.43, H * 0.12, W / 2, H * 0.45, W * 0.72);
-  vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(0.72, "rgba(8,2,5,.08)");
-  vignette.addColorStop(1, "rgba(8,2,5,.48)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, W, H);
-
-  // Hareketli ve açık renkli kamera görüntülerinde üst bilgiler kaybolmasın.
-  const topShade = ctx.createLinearGradient(0, 0, 0, 122);
-  topShade.addColorStop(0, "rgba(8,3,5,.68)");
-  topShade.addColorStop(0.72, "rgba(8,3,5,.28)");
-  topShade.addColorStop(1, "rgba(8,3,5,0)");
-  ctx.fillStyle = topShade;
-  ctx.fillRect(0, 0, W, 122);
-
   corner(ctx, safe, safe, 1, 1, accent, 28);
   corner(ctx, W - safe, safe, -1, 1, accent, 28);
   corner(ctx, safe, H - safe, 1, -1, accent, 28);
