@@ -298,6 +298,10 @@ function updateRecordingBadge() {
 
 function setPanelOpen(open) {
   els.optionsPanel?.classList.toggle("open", open);
+  if (els.panelToggle) {
+    els.panelToggle.setAttribute("aria-expanded", String(open));
+    els.panelToggle.setAttribute("aria-label", open ? "Menüyü kapat" : "Menüyü aç");
+  }
 }
 
 function updateOptionsPanel() {

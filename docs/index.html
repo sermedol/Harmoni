@@ -6,8 +6,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-<link rel="stylesheet" href="styles/theme.css" />
-<link rel="stylesheet" href="styles/layout.css" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260801-3" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260801-3" />
 </head>
 <body>
   <div id="app" class="app">
@@ -43,7 +43,7 @@
 
       <div class="rec-badge" id="rec-badge" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
 
-      <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekleri aç">☰</button>
+      <button class="panel-toggle" id="panel-toggle" aria-label="Menüyü aç"><span>☰</span> MENÜ</button>
 
       <div class="options-panel soft-card" id="options-panel">
           <div class="panel-brand">
@@ -103,22 +103,8 @@
           </label>
           <button class="option-button" id="opt-monitor-toggle">Mikrofon: Açık</button>
           <button class="option-button" id="opt-mode-toggle">Gelişmiş görünüm</button>
-          <button class="option-button guide-action" id="opt-guide">Tüm kısayolları göster <kbd>/</kbd></button>
+          <button class="option-button guide-action" id="opt-guide">Kullanım kılavuzu <kbd>/</kbd></button>
       </div>
-
-      <aside class="quick-guide soft-card" aria-label="Hızlı kullanım kılavuzu">
-        <div class="guide-heading">
-          <span class="guide-eyebrow">Hızlı başlangıç</span>
-          <strong>Hareketlerin orkestran</strong>
-          <p>Ellerini kamera alanında tut. Jestini kısa süre sabit tuttuğunda Harmoni müziğe uygular.</p>
-        </div>
-        <div class="guide-step"><span class="gesture-icon">✋</span><span><b>Açık avuç</b><small>Sağ el yaylıları, sol el pad'i açar</small></span></div>
-        <div class="guide-step"><span class="gesture-icon">✌</span><span><b>Barış işareti</b><small>Ritim katmanını açar veya kapatır</small></span></div>
-        <div class="guide-step"><span class="gesture-icon">🤏</span><span><b>Pinch</b><small>Reverb ve yankı miktarını ayarlar</small></span></div>
-        <div class="guide-step"><span class="gesture-icon">✊</span><span><b>Yumruk</b><small>Ek katmanları susturur</small></span></div>
-        <div class="shortcut-strip"><span><kbd>Tab</kbd> Görünüm</span><span><kbd>R</kbd> Kayıt</span><span><kbd>F</kbd> Orkestra</span></div>
-        <button class="guide-link" type="button" onclick="document.getElementById('opt-guide').click()">Kullanım kılavuzunu aç <span>→</span></button>
-      </aside>
 
       <div class="feza-signature">feza işlevli oyuncaklarını sunar :)</div>
 
@@ -203,6 +189,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=20260801-3"></script>
 </body>
 </html>
