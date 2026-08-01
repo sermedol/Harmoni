@@ -96,8 +96,7 @@ test("finger extension is invariant when the hand rotates", () => {
 test("landmark filter suppresses micro jitter but follows deliberate motion", () => {
   const previous = [.5, .5, 0];
   const jitter = smoothLandmarkPoint(previous, [.502, .499, .002]);
-  assert.ok(Math.abs(jitter[0] - previous[0]) < .0002);
-  assert.ok(Math.abs(jitter[1] - previous[1]) < .0002);
+  assert.deepEqual(jitter, previous);
   const motion = smoothLandmarkPoint(previous, [.56, .5, 0]);
   assert.ok(motion[0] > .535);
 });
@@ -112,7 +111,7 @@ test("hand identity remains stable when MediaPipe flips handedness", () => {
 });
 
 test("render interpolation removes step jumps without freezing fast motion", () => {
-  assert.deepEqual(interpolateLandmark([100, 100], [101, 99]), [100.1, 99.9]);
+  assert.deepEqual(interpolateLandmark([100, 100], [101, 99]), [100, 100]);
   const fast = interpolateLandmark([100, 100], [200, 100]);
-  assert.equal(fast[0], 158);
+  assert.equal(fast[0], 168);
 });

@@ -70,8 +70,14 @@ export function fingerStates(points) {
 // hareket büyüdükçe katsayı hızla yükselir ve el ağırlaşmış hissettirmez.
 export function smoothLandmarkPoint(previous, current) {
   const movement = Math.hypot(current[0] - previous[0], current[1] - previous[1]);
-  const alpha = movement < 0.0028 ? 0.06 : clamp(0.12 + movement * 16, 0.16, 0.72);
-  const zAlpha = clamp(alpha * 0.8, 0.08, 0.58);
+  // A stationary MediaPipe landmark commonly wanders by 3-6 screen pixels.
+  // Treat that as sensor noise instead of continuously chasing it. Once the
+  // hand genuinely moves, open the filter progressively so controls stay live.
+  if (movement < 0.0042) return [...previous];
+  const alpha = movement < 0.012
+    ? 0.14
+    : clamp(0.18 + movement * 14, 0.34, 0.82);
+  const zAlpha = clamp(alpha * 0.72, 0.1, 0.62);
   return [
     previous[0] + (current[0] - previous[0]) * alpha,
     previous[1] + (current[1] - previous[1]) * alpha,

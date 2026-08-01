@@ -7,7 +7,11 @@ const displayTracks = new Map();
 
 export function interpolateLandmark(previous, target) {
   const distance = Math.hypot(target[0] - previous[0], target[1] - previous[1]);
-  const alpha = distance < 2 ? 0.1 : distance > 70 ? 0.58 : Math.min(0.46, 0.18 + distance / 260);
+  // Keep the overlay visually planted while the hand is still. This is only
+  // presentation smoothing; gesture/audio calculations continue to use the
+  // tracker data and therefore remain responsive.
+  if (distance <= 4) return [...previous];
+  const alpha = distance < 14 ? 0.12 : distance > 70 ? 0.68 : Math.min(0.54, 0.24 + distance / 230);
   return [previous[0] + (target[0] - previous[0]) * alpha, previous[1] + (target[1] - previous[1]) * alpha];
 }
 
