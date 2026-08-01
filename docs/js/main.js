@@ -3,23 +3,23 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260801-25";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260801-25";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260801-25";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260801-25";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260801-25";
-import { loadConfig, saveConfig } from "./config.js?v=20260801-29";
-import { createAppState } from "./app-state.js?v=20260801-25";
-import { Camera } from "./camera/camera.js?v=20260801-29";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260801-36";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260801-31";
-import { GestureController } from "./camera/gesture-controller.js?v=20260801-37";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-32";
-import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-31";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-35";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260801-25";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260801-25";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260801-25";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-01";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-01";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-01";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-01";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-01";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-01";
+import { createAppState } from "./app-state.js?v=20260802-01";
+import { Camera } from "./camera/camera.js?v=20260802-01";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-01";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-01";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-01";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-01";
+import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-01";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-01";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-01";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-01";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-01";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -131,12 +131,31 @@ lightCanvas.height = 18;
 const lightCtx = lightCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
 let sceneScale = 1;
 
+// canvas-hud.js sabit mantiksal koordinatlara ciziyor: ust bloklar y=111'de
+// biter, alt konsol deckH+safe kadar yer kaplar. Sahne CSS'te olceklendigi
+// icin bu mantiksal degerlerin CSS piksel karsiligini burada hesaplayip
+// degisken olarak yayinliyoruz; layout.css DOM kromunu bu degiskenlerle
+// konumlandirarak canvas icerigiyle cakismayi onluyor.
+function publishHudSafeArea(portrait, logicalWidth) {
+  const stage = els.sceneCanvas.parentElement;
+  if (!stage) return;
+  const width = stage.getBoundingClientRect().width;
+  if (!width || !logicalWidth) return;
+  const scale = width / logicalWidth;
+  const bottomReserve = portrait ? 154 + 16 : 112 + 22;
+  stage.style.setProperty("--hud-top", `${Math.round(130 * scale)}px`);
+  stage.style.setProperty("--hud-bottom", `${Math.round((bottomReserve + 14) * scale)}px`);
+}
+
 function resizeSceneCanvas() {
   const size = sceneSizeForViewport(window.innerWidth, window.innerHeight);
   const portrait = size.portrait;
   const nextWidth = size.width;
   const nextHeight = size.height;
   const nextScale = portrait ? 1 : Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+  // Sahne CSS genisligi, mantiksal boyut sabit kalsa bile degisebilir
+  // (ornegin 1280 -> 1600 masaustu); guvenli alan her cagrida yayinlanir.
+  publishHudSafeArea(portrait, nextWidth);
   if (sceneScale === nextScale && sceneWidth === nextWidth && sceneHeight === nextHeight && els.sceneCanvas.width === Math.round(nextWidth * nextScale)) return;
   sceneWidth = nextWidth;
   sceneHeight = nextHeight;
@@ -144,9 +163,12 @@ function resizeSceneCanvas() {
   els.sceneCanvas.width = Math.round(sceneWidth * sceneScale);
   els.sceneCanvas.height = Math.round(sceneHeight * sceneScale);
   ctx.setTransform(sceneScale, 0, 0, sceneScale, 0, 0);
+  publishHudSafeArea(portrait, nextWidth);
   if (DEMO_MODE && document.body.classList.contains("started")) demoSource = createDemoHandSource(sceneWidth, sceneHeight);
 }
 resizeSceneCanvas();
+// Ilk cagri duzen olusmadan once gerceklestiyse sahne genisligi 0 olabilir.
+requestAnimationFrame(() => resizeSceneCanvas());
 
 function applyModeVisibility() {
   // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada

@@ -27,11 +27,19 @@ export function fitContain(srcW, srcH, dstW, dstH) {
 export function sceneSizeForViewport(viewportWidth, viewportHeight) {
   const portrait = viewportHeight > viewportWidth * 1.12;
   if (!portrait) return { width: 1280, height: 720, portrait: false };
-  return {
-    width: 720,
-    height: Math.round(720 * Math.min(2.25, Math.max(1.35, viewportHeight / Math.max(1, viewportWidth)))),
-    portrait: true,
-  };
+  // Sahne orani viewport oraniyla BIREBIR ayni olmali. Onceki surumde oran
+  // 1.35-2.25 arasina kelepcelenmisti; bu araligin disindaki ekranlarda
+  // (kucuk tablet, bolunmus ekran, cok uzun telefon) canvas ile CSS kutusu
+  // farkli oranlara sahip oluyordu ve object-fit:cover HUD'un ust/alt
+  // kenarini kirpiyordu. Artik yukseklik sinirlaniyor, oran degil.
+  const ratio = viewportHeight / Math.max(1, viewportWidth);
+  let height = Math.min(1600, Math.round(720 * ratio));
+  let width = Math.round(height / ratio);
+  if (width < 480) {
+    width = 480;
+    height = Math.round(480 * ratio);
+  }
+  return { width, height, portrait: true };
 }
 
 export function buildVideoConstraints(profile, { deviceId = "", facingMode = "" } = {}) {

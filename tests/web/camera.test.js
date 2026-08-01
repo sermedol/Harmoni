@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitContain, fitCover, sceneSizeForViewport, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
 import { associateHandLabels, fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
+import { classifyGesture } from "../../docs/js/camera/gesture-classifier.js";
 import { interpolateLandmark } from "../../docs/js/hud/hand-skeleton.js";
 
 test("camera profiles degrade from 1080p to native fallback", () => {
@@ -91,6 +92,46 @@ test("finger extension is invariant when the hand rotates", () => {
   const angle = Math.PI / 2;
   const rotated = points.map(([x, y]) => [x * Math.cos(angle) - y * Math.sin(angle), x * Math.sin(angle) + y * Math.cos(angle)]);
   assert.deepEqual(fingerStates(rotated), [true, true, true, true, true]);
+});
+
+// Parmaklari verilen eklem acisiyla buken yapay bir el uretir (180 = tam duz).
+function handWithFingerBend(degrees) {
+  const points = Array.from({ length: 21 }, () => [0, 0]);
+  points[0] = [0, 0];
+  points[1] = [-.4, .2]; points[3] = [-1.2, .2]; points[4] = [-2, .2];
+  const theta = (180 - degrees) * Math.PI / 180;
+  for (const [mcp, pip, tip, x] of [[5, 6, 8, -.6], [9, 10, 12, -.2], [13, 14, 16, .2], [17, 18, 20, .6]]) {
+    points[mcp] = [x, .8];
+    points[pip] = [x, 1.8];
+    points[tip] = [x + Math.sin(theta) * 1.8, 1.8 + Math.cos(theta) * 1.8];
+  }
+  return points;
+}
+
+test("naturally open hand still counts as open when fingers bend slightly", () => {
+  // Insan eli acik dururken parmaklar cetvel gibi duz degil, ~145 derecedir.
+  // Onceki 152 derece esigi bu eli "kapali" sayiyor ve ACIK AVUC jesti
+  // pratikte hic tetiklenmiyordu.
+  assert.deepEqual(fingerStates(handWithFingerBend(145)).slice(1), [true, true, true, true]);
+  // Gercekten bukulmus parmaklar hala acik sayilmamali.
+  assert.deepEqual(fingerStates(handWithFingerBend(120)).slice(1), [false, false, false, false]);
+});
+
+test("closed fist is not misread as a pinch", () => {
+  // Yumrukta bas parmak ve isaret ucu da birbirine yaklasir; eski sirada
+  // pinch esigi once bakildigi icin yumruk PINCH olarak siniflaniyordu.
+  assert.equal(classifyGesture([false, false, false, false, false], .10), "FIST");
+  // Gercek pinch'te diger parmaklardan en az biri disarida durur.
+  assert.equal(classifyGesture([false, false, true, true, true], .10), "PINCH");
+  assert.equal(classifyGesture([true, true, true, true, true], .90), "OPEN_HAND");
+});
+
+test("portrait scene keeps the viewport aspect outside the old clamp band", () => {
+  for (const [w, h] of [[583, 690], [768, 900], [360, 1000]]) {
+    const scene = sceneSizeForViewport(w, h);
+    assert.equal(scene.portrait, true, `${w}x${h} portrait olmali`);
+    assert.ok(Math.abs(scene.width / scene.height - w / h) < .005, `${w}x${h} orani korunmali`);
+  }
 });
 
 test("landmark filter suppresses micro jitter but follows deliberate motion", () => {

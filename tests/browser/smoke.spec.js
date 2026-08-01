@@ -56,17 +56,75 @@ test("performance scene is filterless and matches viewport without cropping", as
   expect(result.visibleSignatures).toBeLessThanOrEqual(1);
 });
 
+// canvas-hud.js sabit mantiksal koordinatlara ciziyor. DOM kromu (menu
+// butonu, KAMERA AKTIF rozeti, kayit rozeti, imza) bu bloklarin uzerine
+// binmemeli. Daha once KAMERA AKTIF rozeti TEMPO/BPM blogunun, menu butonu
+// da HARMONI kimlik blogunun tam ustunde duruyordu.
+test("DOM chrome does not overlap the canvas HUD blocks", async ({ page }) => {
+  await page.goto("/?demo=1");
+  await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });
+  await page.locator("#start-button").click();
+  // Krom ogeleri .5sn'lik bir giris animasyonuyla yerine oturuyor; olcum
+  // yerlesmis durumda yapilmali.
+  await page.waitForTimeout(800);
+
+  const overlaps = await page.evaluate(() => {
+    const canvas = document.querySelector("#scene-canvas");
+    const stage = document.querySelector(".stage");
+    const stageRect = stage.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const logicalW = canvas.width;
+    const logicalH = canvas.height;
+    const scale = canvasRect.width / logicalW;
+    const portrait = logicalH > logicalW;
+    const deckReserve = portrait ? 154 + 16 : 112 + 22;
+    const box = (x1, y1, x2, y2) => [x1 * scale, y1 * scale, x2 * scale, y2 * scale];
+    const zones = {
+      identity: box(22, 22, 182, 100),
+      chord: box(logicalW / 2 - 215, 22, logicalW / 2 + 215, 95),
+      tempo: box(logicalW - 140, 20, logicalW, 111),
+      deck: box(22, logicalH - deckReserve, logicalW - 22, logicalH),
+    };
+    const intersects = (a, b) => !(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]);
+    const found = [];
+    for (const selector of [".camera-active", "#panel-toggle", ".rec-badge", ".feza-signature"]) {
+      const element = document.querySelector(selector);
+      if (!element) continue;
+      element.hidden = false;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      const local = [rect.left - stageRect.left, rect.top - stageRect.top, rect.right - stageRect.left, rect.bottom - stageRect.top];
+      for (const [name, zone] of Object.entries(zones)) {
+        if (intersects(local, zone)) found.push(`${selector} ~ ${name}`);
+      }
+    }
+    return found;
+  });
+
+  expect(overlaps).toEqual([]);
+});
+
 test("open menu stays inside the viewport", async ({ page }) => {
   await page.goto("/?demo=1");
   await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });
   await page.locator("#start-button").click();
   await page.locator("#panel-toggle").click();
+  // Panel .24sn'lik bir transform gecisiyle iceri kayiyor; olcum gecis
+  // bitmeden yapilirsa panel hala ekranin solunda gorunur.
+  await page.locator("#options-panel").evaluate((panel) => new Promise((resolve) => {
+    const settled = () => Math.abs(panel.getBoundingClientRect().left) < 1;
+    if (settled()) return resolve();
+    const started = performance.now();
+    const poll = () => (settled() || performance.now() - started > 2000) ? resolve() : requestAnimationFrame(poll);
+    poll();
+  }));
   const bounds = await page.locator("#options-panel").evaluate((panel) => {
     const rect = panel.getBoundingClientRect();
     return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
   });
-  expect(bounds.left).toBeGreaterThanOrEqual(0);
-  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  // Alt piksel yuvarlamasi icin sag/alt kontrolleriyle ayni tolerans.
+  expect(bounds.left).toBeGreaterThanOrEqual(-1);
+  expect(bounds.top).toBeGreaterThanOrEqual(-1);
   expect(bounds.right).toBeLessThanOrEqual(bounds.width + 1);
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.height + 1);
 });

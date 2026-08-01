@@ -1422,3 +1422,86 @@ html,body,button,select,input {
   .start-guide-list small { font-size:10px; }
   .start-launch span { font-size:10.5px; }
 }
+
+/* =========================================================================
+   CAKISMA GIDERME — DOM kromu ile canvas HUD'unu ayrik bolgelere yerlestirir
+   -------------------------------------------------------------------------
+   canvas-hud.js sabit mantiksal koordinatlara ciziyor (sahne 1280x720):
+     sol ust   x 22-182  y 22-100   HARMONI / PERFORMANS 01 / durum
+     ust orta  x 425-855 y 22-95    SU ANKI ESLIK
+     sag ust   x 1140-1246 y 20-111 TEMPO / BPM / vurus
+     alt konsol x 22-1258 y 586-698 birlesik performans konsolu
+   Sahne orani ile canvas orani ayni oldugu icin yuzde birimleri bu
+   koordinatlara birebir karsilik gelir: y=111 -> %15.4, y=586 -> %81.4.
+   Asagidaki degerler o bolgelerin DISINA denk gelecek sekilde secildi.
+   ========================================================================= */
+
+/* --hud-top / --hud-bottom degerlerini main.js publishHudSafeArea() yayinlar;
+   sahne her boyutlandiginda canvas olcegine gore yeniden hesaplanir.
+   Yedek degerler JS calismazsa makul bir yerlesim birakir. */
+.stage { --hud-top: 130px; --hud-bottom: 148px; }
+
+/* Sag kenar durum rayi: TEMPO blogunun hemen altindan baslar. */
+.camera-active {
+  top: var(--hud-top);
+  right: 22px;
+  transition: opacity .28s ease, transform .28s cubic-bezier(.2,.8,.2,1);
+}
+.rec-badge {
+  top: calc(var(--hud-top) + 34px);
+  right: 22px;
+  bottom: auto;
+  left: auto;
+}
+
+/* Menu butonu: sol ust kimlik blogunun altina iner. */
+.panel-toggle {
+  top: var(--hud-top);
+  left: 22px;
+}
+
+/* Imza: alt konsolun uzerinde kalir, konsolun icine binmez. */
+.feza-signature {
+  right: 22px;
+  bottom: var(--hud-bottom);
+}
+
+@media (max-width: 820px) {
+  .camera-active { right: max(14px, env(safe-area-inset-right)); }
+  .rec-badge {
+    top: calc(var(--hud-top) + 32px);
+    right: max(14px, env(safe-area-inset-right));
+    bottom: auto;
+  }
+  .panel-toggle { left: max(12px, env(safe-area-inset-left)); }
+  .feza-signature { right: 12px; bottom: var(--hud-bottom); }
+}
+
+/* --- Hareket / cila --------------------------------------------------- */
+
+/* Kayit noktasi zaten yaniyor; kamera noktasina da yumusak bir nabiz. */
+.camera-active span { animation: harmoni-pulse 2.4s ease-in-out infinite; }
+@keyframes harmoni-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(223,82,107,.15); }
+  50%      { box-shadow: 0 0 0 6px rgba(223,82,107,.05); }
+}
+
+/* Deneyim baslayinca krom ogeleri sirayla belirir. */
+body.started .panel-toggle,
+body.started .camera-active,
+body.started .feza-signature {
+  animation: harmoni-chrome-in .5s cubic-bezier(.2,.8,.2,1) both;
+}
+body.started .camera-active  { animation-delay: .06s; }
+body.started .feza-signature { animation-delay: .12s; }
+@keyframes harmoni-chrome-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-active span,
+  body.started .panel-toggle,
+  body.started .camera-active,
+  body.started .feza-signature { animation: none; }
+}

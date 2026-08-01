@@ -4,7 +4,7 @@
 // `available=false` olur ve process() daima bos dizi dondurur - uygulamanin
 // geri kalani (jest kontrolu, HUD) sessizce "eller yok" durumuna duser.
 import { clamp } from "../constants/music-utils.js";
-import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260801-27";
+import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-01";
 
 const VISION_VERSION = "0.10.14";
 const VISION_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VERSION}`;
@@ -50,15 +50,19 @@ function jointAngle(a, b, c) {
 // Ekrandaki yöne bağlı değildir; el yana veya çapraz durduğunda da çalışır.
 export function fingerStates(points) {
   const wrist = points[WRIST];
+  // Esikler kasitli olarak gevsek: insan eli "acik" dururken parmaklar
+  // genelde 138-155 derece arasindadir, cetvel gibi duz degildir. Onceki
+  // 152 derece siniri dort parmagin ayni anda gecmesini gerektirdigi icin
+  // ACIK AVUC pratikte hic tetiklenmiyordu.
   const extended = (mcp, pip, tip) => {
     const straight = jointAngle(points[mcp], points[pip], points[tip]);
     const reach = dist(points[tip], wrist) / Math.max(1, dist(points[pip], wrist));
-    return straight > 152 && reach > 1.08;
+    return straight > 138 && reach > 1.04;
   };
   const thumbStraight = jointAngle(points[1], points[THUMB_IP], points[THUMB_TIP]);
   const thumbReach = dist(points[THUMB_TIP], points[MIDDLE_MCP]) / Math.max(1, dist(points[THUMB_IP], points[MIDDLE_MCP]));
   return [
-    thumbStraight > 145 && thumbReach > 1.08,
+    thumbStraight > 131 && thumbReach > 1.03,
     extended(INDEX_MCP, INDEX_PIP, INDEX_TIP),
     extended(MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP),
     extended(RING_MCP, RING_PIP, RING_TIP),
@@ -73,10 +77,13 @@ export function smoothLandmarkPoint(previous, current) {
   // A stationary MediaPipe landmark commonly wanders by 3-6 screen pixels.
   // Treat that as sensor noise instead of continuously chasing it. Once the
   // hand genuinely moves, open the filter progressively so controls stay live.
-  if (movement < 0.0042) return [...previous];
+  // Olu bolge titremeyi emmek icin gerekli; hiz ise asagidaki alpha ile
+  // veriliyor. Bu esigi 0.0022'ye kadar dusurmek gercek sensor gurultusunu
+  // gecirip eli yeniden titretiyordu (bkz. ilgili test).
+  if (movement < 0.0032) return [...previous];
   const alpha = movement < 0.012
-    ? 0.14
-    : clamp(0.18 + movement * 14, 0.34, 0.82);
+    ? 0.26
+    : clamp(0.28 + movement * 15, 0.46, 0.9);
   const zAlpha = clamp(alpha * 0.72, 0.1, 0.62);
   return [
     previous[0] + (current[0] - previous[0]) * alpha,
@@ -139,8 +146,8 @@ export class HandTracker {
           this.landmarker = await HandLandmarker.createFromOptions(fileset, {
             baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate },
             runningMode: "VIDEO", numHands: this.maxHands,
-            minHandDetectionConfidence: 0.62, minHandPresenceConfidence: 0.56,
-            minTrackingConfidence: 0.58,
+            minHandDetectionConfidence: 0.45, minHandPresenceConfidence: 0.42,
+            minTrackingConfidence: 0.44,
           });
           this.delegate = delegate;
           break;
