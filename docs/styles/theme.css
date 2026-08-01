@@ -77,6 +77,12 @@ html, body {
   overflow: hidden;
 }
 
+button, select, input { font: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .soft-card {
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   border: 1px solid color-mix(in srgb, var(--panel2) 80%, transparent);

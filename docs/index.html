@@ -43,14 +43,19 @@
 
       <div class="rec-badge" id="rec-badge" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
 
-      <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekler">☰</button>
+      <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekleri aç">☰</button>
 
       <div class="options-panel soft-card" id="options-panel">
+          <div class="panel-brand">
+            <span class="brand-mark">H</span>
+            <span><strong>Harmoni</strong><small>Canlı performans stüdyosu</small></span>
+          </div>
           <div class="panel-title">
-            <span>Seçenekler</span>
+            <span>Performans ayarları</span>
             <button class="panel-close" id="panel-close" aria-label="Kapat">×</button>
           </div>
 
+          <div class="panel-section-title">Müzikal yapı</div>
           <label class="option-row">
             <span>Müzik türü</span>
             <!-- genres.js tarafindan doldurulur -->
@@ -65,7 +70,7 @@
           </label>
 
           <label class="option-row">
-            <span>Eşlik sesi <b id="opt-volume-value">30%</b></span>
+            <span>Eşlik seviyesi <b id="opt-volume-value">30%</b></span>
             <input type="range" id="opt-volume" min="8" max="46" value="30" />
           </label>
 
@@ -76,16 +81,17 @@
 
           <div class="option-divider"></div>
 
-          <div class="option-row"><span>Orkestra</span></div>
+          <div class="panel-section-title">Orkestra katmanları</div>
           <div class="instrument-grid" id="instrument-grid"></div>
           <div class="option-button-row">
-            <button class="option-button compact" id="opt-full-orchestra">Tümü</button>
+            <button class="option-button compact" id="opt-full-orchestra">Tümünü aç</button>
             <button class="option-button compact" id="opt-mute">Yalnız piyano</button>
           </div>
 
           <div class="option-divider"></div>
 
-          <button class="option-button record" id="opt-record">● Kayıt başlat</button>
+          <div class="panel-section-title">Oturum</div>
+          <button class="option-button record" id="opt-record">● Kaydı başlat</button>
           <label class="option-row">
             <span>Tema</span>
             <select id="opt-theme">
@@ -97,8 +103,24 @@
           </label>
           <button class="option-button" id="opt-monitor-toggle">Mikrofon: Açık</button>
           <button class="option-button" id="opt-mode-toggle">Gelişmiş görünüm</button>
-          <button class="option-button" id="opt-guide">Kılavuz (/)</button>
+          <button class="option-button guide-action" id="opt-guide">Tüm kısayolları göster <kbd>/</kbd></button>
       </div>
+
+      <aside class="quick-guide soft-card" aria-label="Hızlı kullanım kılavuzu">
+        <div class="guide-heading">
+          <span class="guide-eyebrow">Hızlı başlangıç</span>
+          <strong>Hareketlerin orkestran</strong>
+          <p>Ellerini kamera alanında tut. Jestini kısa süre sabit tuttuğunda Harmoni müziğe uygular.</p>
+        </div>
+        <div class="guide-step"><span class="gesture-icon">✋</span><span><b>Açık avuç</b><small>Sağ el yaylıları, sol el pad'i açar</small></span></div>
+        <div class="guide-step"><span class="gesture-icon">✌</span><span><b>Barış işareti</b><small>Ritim katmanını açar veya kapatır</small></span></div>
+        <div class="guide-step"><span class="gesture-icon">🤏</span><span><b>Pinch</b><small>Reverb ve yankı miktarını ayarlar</small></span></div>
+        <div class="guide-step"><span class="gesture-icon">✊</span><span><b>Yumruk</b><small>Ek katmanları susturur</small></span></div>
+        <div class="shortcut-strip"><span><kbd>Tab</kbd> Görünüm</span><span><kbd>R</kbd> Kayıt</span><span><kbd>F</kbd> Orkestra</span></div>
+        <button class="guide-link" type="button" onclick="document.getElementById('opt-guide').click()">Kullanım kılavuzunu aç <span>→</span></button>
+      </aside>
+
+      <div class="feza-signature">feza işlevli oyuncaklarını sunar :)</div>
 
       <div id="hud-advanced" class="hud-advanced" hidden>
         <div class="adv-row adv-header-row">
@@ -163,19 +185,21 @@
 
       <div id="guide-overlay" class="guide-overlay" hidden>
         <div class="guide-panel soft-card">
-          <h2>Harmoni Kullanim Kilavuzu</h2>
+          <h2>Harmoni Kullanım Kılavuzu</h2>
           <div id="guide-gestures"></div>
           <div id="guide-keys"></div>
-          <div class="guide-hint">Kapatmak icin / veya Esc</div>
+          <div class="guide-hint">Kapatmak için <kbd>/</kbd> veya <kbd>Esc</kbd></div>
         </div>
       </div>
 
       <div id="start-overlay" class="start-overlay">
         <div class="start-panel soft-card">
-          <h1>Harmoni</h1>
-          <p>Kamera ve mikrofon erisimi ile el hareketleriyle kontrol edilen canli orkestra eslgi.</p>
-          <button id="start-button" class="start-button">Basla</button>
-          <p class="start-note">Tarayicinin kamera/mikrofon izni istemesi normaldir.</p>
+          <span class="start-kicker">Müziğin hareketle buluştuğu yer</span>
+          <h1>Orkestranı<br><em>harekete geçir.</em></h1>
+          <p>Kameran hareketlerini, mikrofonun melodini algılar. Harmoni sana gerçek zamanlı eşlik eder.</p>
+          <button id="start-button" class="start-button">Stüdyoyu başlat <span>→</span></button>
+          <div class="start-features"><span>◉ Canlı vokal analizi</span><span>◉ 12 enstrüman</span><span>◉ Türk makamları</span></div>
+          <p class="start-note">Başlarken kamera ve mikrofon izni istenir.</p>
         </div>
       </div>
     </div>
