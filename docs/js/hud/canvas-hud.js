@@ -97,8 +97,10 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   const nx = W - nw - 20;
   card(ctx, nx, 18, nw, 92, theme, { accent: theme.primary, alpha: 0.86 });
   label(ctx, "SESİN", nx + 18, 40, 10.5, theme.muted, "600");
-  label(ctx, v.noteName || "--", nx + 18, 76, 32, theme.primary, "700");
-  const detail = v.voiced ? `${v.frequency.toFixed(1)} Hz` : "sessiz";
+  const noteSize = v.voiced ? 32 : 15;
+  const noteY = v.voiced ? 76 : 72;
+  label(ctx, v.noteName || "--", nx + 18, noteY, noteSize, theme.primary, v.voiced ? "700" : "600");
+  const detail = v.voiced ? `${v.frequency.toFixed(1)} Hz` : "ses bekleniyor";
   label(ctx, detail, nx + 18, 98, 11, theme.muted);
 
   // ---- Sol alt: durum + jest ----

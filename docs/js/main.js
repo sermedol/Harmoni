@@ -15,7 +15,7 @@ import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawCanvasHud } from "./hud/canvas-hud.js";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-9";
 import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;
