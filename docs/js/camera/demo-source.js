@@ -152,7 +152,4 @@ export function drawDemoBackground(ctx, width, height, t) {
   grad.addColorStop(1, `hsl(${(hue + 60) % 360}, 35%, 8%)`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
-  ctx.font = "16px sans-serif";
-  ctx.fillText("DEMO MODU - sentetik el verisi (kamera yok)", 24, height - 20);
 }

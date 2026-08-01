@@ -17,6 +17,23 @@ export function fitCover(srcW, srcH, dstW, dstH) {
   return { sx: 0, sy: (srcH - sh) / 2, sw: srcW, sh };
 }
 
+export function fitContain(srcW, srcH, dstW, dstH) {
+  const scale = Math.min(dstW / Math.max(1, srcW), dstH / Math.max(1, srcH));
+  const dw = srcW * scale;
+  const dh = srcH * scale;
+  return { dx: (dstW - dw) / 2, dy: (dstH - dh) / 2, dw, dh };
+}
+
+export function sceneSizeForViewport(viewportWidth, viewportHeight) {
+  const portrait = viewportHeight > viewportWidth * 1.12;
+  if (!portrait) return { width: 1280, height: 720, portrait: false };
+  return {
+    width: 720,
+    height: Math.round(720 * Math.min(2.25, Math.max(1.35, viewportHeight / Math.max(1, viewportWidth)))),
+    portrait: true,
+  };
+}
+
 export function buildVideoConstraints(profile, { deviceId = "", facingMode = "" } = {}) {
   const selection = deviceId ? { deviceId: { exact: deviceId } } : (facingMode ? { facingMode: { ideal: facingMode } } : {});
   if (!profile) return selection;

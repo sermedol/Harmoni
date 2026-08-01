@@ -5,8 +5,6 @@
 // 3-4) main.js bir stub gecebilir; bu dosyanin kendisi degismez.
 import { clamp, lerp } from "../constants/music-utils.js";
 
-const CAM_WIDTH = 1280;
-
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
@@ -161,7 +159,8 @@ export class GestureController {
 
   _mapHandDistance(left, right) {
     const d = dist(left.palmCenter, right.palmCenter);
-    const normalized = clamp((d / CAM_WIDTH - 0.12) / 0.52, 0, 1);
+    const referenceSize = Math.max(24, (left.handSize + right.handSize) / 2);
+    const normalized = clamp((d / referenceSize - 1.4) / 5.6, 0, 1);
     this.synthActions.setDensityGain(lerp(0.24, 0.62, normalized));
   }
 }

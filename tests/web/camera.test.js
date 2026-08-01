@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CAMERA_PROFILES, buildVideoConstraints, fitCover, shouldMirror } from "../../docs/js/camera/camera-math.js";
+import { CAMERA_PROFILES, buildVideoConstraints, fitContain, fitCover, sceneSizeForViewport, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
 import { associateHandLabels, fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
 import { interpolateLandmark } from "../../docs/js/hud/hand-skeleton.js";
@@ -29,6 +29,17 @@ test("cover crop preserves aspect ratio for 4:3 camera", () => {
   assert.equal(crop.sw, 640);
   assert.equal(crop.sy, 60);
   assert.equal(crop.sx, 0);
+});
+
+test("raw camera contain mode preserves the complete 4:3 frame", () => {
+  assert.deepEqual(fitContain(640, 480, 1280, 720), { dx: 160, dy: 0, dw: 960, dh: 720 });
+});
+
+test("portrait scene matches the viewport aspect without CSS cropping", () => {
+  const scene = sceneSizeForViewport(390, 844);
+  assert.equal(scene.portrait, true);
+  assert.ok(Math.abs(scene.width / scene.height - 390 / 844) < .001);
+  assert.deepEqual(sceneSizeForViewport(1280, 720), { width: 1280, height: 720, portrait: false });
 });
 
 test("front camera mirrors automatically and rear camera does not", () => {

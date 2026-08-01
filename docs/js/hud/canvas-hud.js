@@ -97,7 +97,8 @@ function metric(ctx, label, value, x, y, theme, width) {
 export function drawCanvasHud(ctx, v, theme, W, H) {
   ctx.save();
   const now = performance.now();
-  const safe = 22;
+  const portrait = H > W;
+  const safe = portrait ? 16 : 22;
   const accent = v.tonalSystem === "makam" ? theme.accent : theme.primary;
 
   corner(ctx, safe, safe, 1, 1, accent, 28);
@@ -106,26 +107,28 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   corner(ctx, W - safe, H - safe, -1, -1, accent, 28);
 
   // Left identity rail.
-  text(ctx, "HARMONİ", 34, 46, 19, theme.text, 780);
-  text(ctx, "PERFORMANS / 01", 34, 65, 9, theme.muted, 700, "left", MONO);
+  text(ctx, "HARMONİ", 34, 46, portrait ? 23 : 19, theme.text, 780);
+  text(ctx, "PERFORMANS / 01", 34, portrait ? 70 : 65, portrait ? 11 : 9, theme.muted, 700, "left", MONO);
   line(ctx, 34, 73, 182, 73, accent, 2, 0.8);
   const statusColor = v.ready ? theme.success : theme.warning;
   ctx.beginPath(); ctx.arc(35, 91, 3.5, 0, Math.PI * 2); ctx.fillStyle = statusColor; ctx.fill();
-  text(ctx, fitText(ctx, v.statusLabel || "Hazırlanıyor", 145, 10, 650), 46, 95, 10, theme.text, 650);
+  text(ctx, fitText(ctx, v.statusLabel || "Hazırlanıyor", 145, portrait ? 12 : 10, 650), 46, 95, portrait ? 12 : 10, theme.text, 650);
 
   // Central musical readout: typography and rails instead of another card.
-  const centerY = 48;
-  text(ctx, "ŞU ANKİ EŞLİK", W / 2, 28, 9, theme.muted, 750, "center", MONO);
+  const centerY = portrait ? 152 : 48;
+  text(ctx, "ŞU ANKİ EŞLİK", W / 2, portrait ? 132 : 28, 9, theme.muted, 750, "center", MONO);
   text(ctx, fitText(ctx, v.chordName || "—", 390, 33, 760), W / 2, centerY + 16, 33, theme.text, 760, "center");
   text(ctx, fitText(ctx, `${v.tonalBadge || "BATI"}  ·  ${v.genreLabel || "SERBEST"}`, 360, 10, 750, MONO), W / 2, centerY + 37, 10, accent, 750, "center", MONO);
-  line(ctx, W / 2 - 215, 89, W / 2 + 215, 89, theme.panel2, 1, 0.72);
-  const scanX = W / 2 - 215 + ((now / 7) % 430);
-  line(ctx, scanX - 35, 89, scanX, 89, accent, 2, 0.75);
+  const musicRailY = portrait ? 193 : 89;
+  const musicRailHalf = Math.min(215, W / 2 - safe - 20);
+  line(ctx, W / 2 - musicRailHalf, musicRailY, W / 2 + musicRailHalf, musicRailY, theme.panel2, 1, 0.72);
+  const scanX = W / 2 - musicRailHalf + ((now / 7) % (musicRailHalf * 2));
+  line(ctx, scanX - 35, musicRailY, scanX, musicRailY, accent, 2, 0.75);
 
   // Right tempo rail — large enough to glance at, compact enough not to cover video.
-  text(ctx, "TEMPO", W - 34, 31, 9, theme.muted, 750, "right", MONO);
-  text(ctx, Math.round(v.bpm), W - 34, 62, 29, theme.text, 760, "right", MONO);
-  text(ctx, "BPM", W - 34, 78, 9, accent, 750, "right", MONO);
+  text(ctx, "TEMPO", W - 34, 31, portrait ? 11 : 9, theme.muted, 750, "right", MONO);
+  text(ctx, Math.round(v.bpm), W - 34, portrait ? 68 : 62, portrait ? 35 : 29, theme.text, 760, "right", MONO);
+  text(ctx, "BPM", W - 34, portrait ? 88 : 78, portrait ? 11 : 9, accent, 750, "right", MONO);
   drawBeat(ctx, W - 91, 92, v.bpm, theme, 19);
 
   // Gesture reticle only appears when a meaningful gesture exists.
@@ -140,11 +143,33 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
 
   // One unified performance console.
   const deckX = safe;
-  const deckH = 112;
+  const deckH = portrait ? 154 : 112;
   const deckY = H - deckH - safe;
   const deckW = W - safe * 2;
   glass(ctx, deckX, deckY, deckW, deckH, theme, 0.83);
   line(ctx, deckX, deckY, deckX + deckW, deckY, accent, 1.5, 0.9);
+
+  if (portrait) {
+    text(ctx, "CANLI GİRİŞ", deckX + 16, deckY + 24, 11, accent, 780, "left", MONO);
+    const portraitNote = v.voiced ? v.noteName : "—";
+    text(ctx, portraitNote, deckX + 16, deckY + 72, 42, theme.text, 720, "left", MONO);
+    text(ctx, v.voiced ? `${v.frequency.toFixed(1)} Hz` : "SES BEKLENİYOR", deckX + 18, deckY + 98, 12, theme.muted, 650, "left", MONO);
+    text(ctx, "VURUŞ", deckX + 178, deckY + 24, 11, theme.muted, 750, "left", MONO);
+    text(ctx, `${Math.round(v.bpm)} BPM`, deckX + 178, deckY + 62, 24, theme.text, 720, "left", MONO);
+    drawBeat(ctx, deckX + 184, deckY + 88, v.bpm, theme, 22);
+    const portraitWaveX = deckX + 350;
+    text(ctx, "CANLI SES İZİ", portraitWaveX, deckY + 24, 11, theme.muted, 750, "left", MONO);
+    drawWave(ctx, v.waveform, portraitWaveX, deckY + 38, deckW - 368, 56, accent);
+    const portraitNames = v.instruments || [];
+    text(ctx, `ORKESTRA / ${portraitNames.length} KATMAN`, deckX + 178, deckY + 119, 10, theme.muted, 750, "left", MONO);
+    text(ctx, fitText(ctx, portraitNames.length ? portraitNames.join(" · ") : "Eşlik için ses bekleniyor", deckW - 210, 12, 600), deckX + 178, deckY + 140, 12, theme.text, 600);
+    if (v.recording) {
+      ctx.fillStyle = theme.danger; ctx.beginPath(); ctx.arc(W / 2 - 37, 220, 4, 0, Math.PI * 2); ctx.fill();
+      text(ctx, `REC ${v.recordTime}`, W / 2 - 26, 224, 11, theme.text, 700, "left", MONO);
+    }
+    ctx.restore();
+    return;
+  }
 
   text(ctx, "CANLI GİRİŞ", deckX + 14, deckY + 19, 9, accent, 780, "left", MONO);
   const note = v.voiced ? v.noteName : "—";

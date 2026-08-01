@@ -149,3 +149,7 @@
 - El iskeletindeki mikro titreşim, eklem bazlı hareket uyarlamalı filtreyle bastırıldı; hızlı hareket tepkisi korundu.
 - Kamera her açılışta sistem varsayılanını kullanıyor; görüntüdeki vignette ve üst karartma kaldırılarak doğal, filtresiz görüntü sağlandı.
 - Sağ/sol el kimliği önceki bilek konumuna kilitlendi; 30 FPS sensör sonuçları 60 FPS sahnede interpolasyonla çizilerek basamaklı iskelet sıçramaları giderildi.
+- Kamera üstündeki CSS grid/gradient katmanları ve açılış blur'u tamamen kaldırıldı; 4:3 kaynak artık kırpılmadan gösteriliyor.
+- Dikey sahne viewport oranında üretiliyor, mobil HUD sade ve büyük metinli alt konsol kullanıyor; kenar kırpılması ve metin taşmaları giderildi.
+- Kamera/HUD mikrofon izni beklemeden render edilmeye başlıyor; mobil çizim 30 FPS ve 1× DPR ile sınırlandı.
+- İki el arası yoğunluk kontrolü sabit 1280 px yerine el boyuna normalize edildi; dikey mobilde jest aralığı korunuyor.

@@ -11,18 +11,20 @@ import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.
 import { loadConfig, saveConfig } from "./config.js?v=20260801-29";
 import { createAppState } from "./app-state.js?v=20260801-25";
 import { Camera } from "./camera/camera.js?v=20260801-29";
-import { fitCover, shouldMirror } from "./camera/camera-math.js?v=20260801-29";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260801-36";
 import { HandTracker } from "./camera/hand-tracker.js?v=20260801-30";
-import { GestureController } from "./camera/gesture-controller.js?v=20260801-25";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-25";
+import { GestureController } from "./camera/gesture-controller.js?v=20260801-37";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-32";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-30";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-29";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-35";
 import { AudioGraph } from "./audio/audio-graph.js?v=20260801-25";
 import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260801-25";
 import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260801-25";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
+let sceneWidth = CAM_WIDTH;
+let sceneHeight = CAM_HEIGHT;
 const DEMO_MODE = new URLSearchParams(location.search).has("demo");
 
 const config = loadConfig();
@@ -130,12 +132,19 @@ const lightCtx = lightCanvas.getContext("2d", { alpha: false, willReadFrequently
 let sceneScale = 1;
 
 function resizeSceneCanvas() {
-  const nextScale = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
-  if (sceneScale === nextScale && els.sceneCanvas.width === Math.round(CAM_WIDTH * nextScale)) return;
+  const size = sceneSizeForViewport(window.innerWidth, window.innerHeight);
+  const portrait = size.portrait;
+  const nextWidth = size.width;
+  const nextHeight = size.height;
+  const nextScale = portrait ? 1 : Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+  if (sceneScale === nextScale && sceneWidth === nextWidth && sceneHeight === nextHeight && els.sceneCanvas.width === Math.round(nextWidth * nextScale)) return;
+  sceneWidth = nextWidth;
+  sceneHeight = nextHeight;
   sceneScale = nextScale;
-  els.sceneCanvas.width = Math.round(CAM_WIDTH * sceneScale);
-  els.sceneCanvas.height = Math.round(CAM_HEIGHT * sceneScale);
+  els.sceneCanvas.width = Math.round(sceneWidth * sceneScale);
+  els.sceneCanvas.height = Math.round(sceneHeight * sceneScale);
   ctx.setTransform(sceneScale, 0, 0, sceneScale, 0, 0);
+  if (DEMO_MODE && document.body.classList.contains("started")) demoSource = createDemoHandSource(sceneWidth, sceneHeight);
 }
 resizeSceneCanvas();
 
@@ -659,6 +668,7 @@ let renderLoopStarted = false;
 let renderFrameId = 0;
 let startPromise = null;
 let destroyed = false;
+let lastRenderAt = 0;
 let cameraStartPromise = null;
 let activeMirror = true;
 let lastVideoFrameAt = 0;
@@ -677,7 +687,11 @@ function setAnalysisProfile(profile) {
   const profiles = {
     quality: [768, 432, 1], balanced: [640, 360, 1], performance: [480, 270, 2],
   };
-  const [width, height, every] = profiles[profile] || profiles.balanced;
+  let [width, height, every] = profiles[profile] || profiles.balanced;
+  if (sceneHeight > sceneWidth) {
+    width = height;
+    height = Math.round(width * sceneHeight / sceneWidth);
+  }
   if (inferenceCanvas.width !== width) {
     inferenceCanvas.width = width;
     inferenceCanvas.height = height;
@@ -702,17 +716,19 @@ function updateAdaptiveProfile(processMs) {
 }
 
 function drawRealFrame(video) {
-  const srcW = video.videoWidth || CAM_WIDTH;
-  const srcH = video.videoHeight || CAM_HEIGHT;
-  const crop = fitCover(srcW, srcH, CAM_WIDTH, CAM_HEIGHT);
+  const srcW = video.videoWidth || sceneWidth;
+  const srcH = video.videoHeight || sceneHeight;
+  const frame = fitContain(srcW, srcH, sceneWidth, sceneHeight);
   ctx.save();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, sceneWidth, sceneHeight);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   if (activeMirror) {
-    ctx.translate(CAM_WIDTH, 0);
+    ctx.translate(sceneWidth, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, CAM_WIDTH, CAM_HEIGHT);
+  ctx.drawImage(video, 0, 0, srcW, srcH, frame.dx, frame.dy, frame.dw, frame.dh);
   ctx.restore();
 }
 
@@ -721,19 +737,23 @@ function drawInferenceFrame(video) {
   const ih = inferenceCanvas.height;
   const srcW = video.videoWidth || iw;
   const srcH = video.videoHeight || ih;
-  const crop = fitCover(srcW, srcH, iw, ih);
+  const frame = fitContain(srcW, srcH, iw, ih);
   inferenceCtx.save();
+  inferenceCtx.fillStyle = "#000";
+  inferenceCtx.fillRect(0, 0, iw, ih);
   if (activeMirror) { inferenceCtx.translate(iw, 0); inferenceCtx.scale(-1, 1); }
-  inferenceCtx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, iw, ih);
+  inferenceCtx.drawImage(video, 0, 0, srcW, srcH, frame.dx, frame.dy, frame.dw, frame.dh);
   inferenceCtx.restore();
 }
 
 function renderLoop() {
   if (renderLoopStarted || destroyed) return;
   renderLoopStarted = true;
-  const frame = () => {
+  const frame = (frameNow = performance.now()) => {
     if (destroyed) return;
     renderFrameId = requestAnimationFrame(frame);
+    if (sceneHeight > sceneWidth && frameNow - lastRenderAt < 30) return;
+    lastRenderAt = frameNow;
     if (document.hidden && frameCount % 4 !== 0) {
       frameCount += 1;
       return;
@@ -787,7 +807,7 @@ function tick() {
 
   let packets = [];
   if (DEMO_MODE && demoSource) {
-    drawDemoBackground(ctx, CAM_WIDTH, CAM_HEIGHT, t);
+    drawDemoBackground(ctx, sceneWidth, sceneHeight, t);
     packets = demoSource.next();
     state.cameraStatus = "ONLINE";
     state.cameraFps = 60;
@@ -799,7 +819,7 @@ function tick() {
       lastVideoFrameAt = videoFrameTime;
       drawInferenceFrame(camera.video);
       const analysisStarted = performance.now();
-      packets = handTracker.process(inferenceCanvas, now, CAM_WIDTH, CAM_HEIGHT);
+      packets = handTracker.process(inferenceCanvas, now, sceneWidth, sceneHeight);
       state.detectorFps = handTracker.detectorFps;
       const processMs = performance.now() - analysisStarted;
       if (processMs > 1) updateAdaptiveProfile(processMs);
@@ -808,7 +828,7 @@ function tick() {
     updateCameraDiagnostics(packets);
   } else {
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, CAM_WIDTH, CAM_HEIGHT);
+    ctx.fillRect(0, 0, sceneWidth, sceneHeight);
     state.cameraStatus = "OFFLINE";
   }
 
@@ -818,7 +838,7 @@ function tick() {
   drawHandSkeletons(ctx, packets, theme);
   updateRecordingBadge();
   // Bilgi panelleri canvas'a cizilir -> hem ekranda hem de kayitta gorunur.
-  drawCanvasHud(ctx, buildHudView(), theme, CAM_WIDTH, CAM_HEIGHT);
+  drawCanvasHud(ctx, buildHudView(), theme, sceneWidth, sceneHeight);
   updateHudLive();
 
   frameCount += 1;
@@ -960,10 +980,13 @@ async function startExperienceOnce() {
   // tiklanamaz durumdaydi; artik yalnizca basladiktan sonra gorunurler.
   document.body.classList.add("started");
   if (DEMO_MODE) {
-    demoSource = createDemoHandSource(CAM_WIDTH, CAM_HEIGHT);
+    demoSource = createDemoHandSource(sceneWidth, sceneHeight);
   } else {
     tryStartCamera(); // Kamera ve ses birbirini engellemeden başlar.
   }
+  // Görsel sahne mikrofon izni veya AudioWorklet yüklenmesini beklemez.
+  // İzin penceresi açık kalsa bile kamera/HUD hemen çalışmaya devam eder.
+  renderLoop();
   audioGraph = new AudioGraph(state);
   const audioReady = await audioGraph.start({ lowLatency: config.performance !== "quality", inputProfile: config.input_profile }).then(() => {
     // Worklet yeni olustu; kullanicinin baslangictan once yaptigi tum
@@ -979,7 +1002,6 @@ async function startExperienceOnce() {
     });
     return audioGraph.available;
   });
-  renderLoop();
   const cameraReady = DEMO_MODE || state.capabilities.camera === "ready";
   state.lifecycle = cameraReady && audioReady ? "READY" : "PARTIAL_READY";
   return true;
@@ -1137,7 +1159,7 @@ function bootstrap() {
     });
   }
   window.addEventListener("resize", resizeSceneCanvas, { passive: true });
-  window.addEventListener("orientationchange", () => { resizeSceneCanvas(); handTracker?.reset?.(); }, { passive: true });
+  window.addEventListener("orientationchange", () => { resizeSceneCanvas(); setAnalysisProfile(analysisProfile); handTracker?.reset?.(); }, { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       handTracker?.reset?.();
