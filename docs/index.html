@@ -9,8 +9,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260802-02" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260802-02" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260802-03" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260802-03" />
 </head>
 <body>
   <div id="app" class="app">
@@ -181,6 +181,7 @@
       <div id="camera-status-live" class="sr-only" role="status" aria-live="polite"></div>
       <div id="camera-hint" class="camera-hint" role="status" aria-live="polite" hidden></div>
       <div id="camera-active" class="camera-active" hidden><span></span>Kamera aktif</div>
+      <div id="hand-status" class="hand-status" hidden role="status" aria-live="polite"><span class="hand-status-dot"></span><b id="hand-status-text">El aranıyor</b></div>
       <div id="camera-error-overlay" class="camera-error-overlay" role="alertdialog" aria-modal="true" aria-labelledby="camera-error-title" hidden>
         <div class="camera-error-panel soft-card">
           <div class="camera-error-icon">📷</div>
@@ -239,6 +240,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260802-02"></script>
+  <script type="module" src="js/main.js?v=20260802-03"></script>
 </body>
 </html>

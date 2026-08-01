@@ -4,7 +4,7 @@
 // `available=false` olur ve process() daima bos dizi dondurur - uygulamanin
 // geri kalani (jest kontrolu, HUD) sessizce "eller yok" durumuna duser.
 import { clamp } from "../constants/music-utils.js";
-import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-02";
+import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-03";
 
 const VISION_VERSION = "0.10.14";
 const VISION_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VERSION}`;
@@ -208,6 +208,16 @@ export class HandTracker {
       this.landmarker = null;
     }
     return this.available;
+  }
+
+  // Kamera 30fps uretirken sahne 60fps cizilir; yeni bir video karesi
+  // gelmedigi karelerde tespit calistirilmaz. O karelerde el listesini BOS
+  // birakmak iskeletin ve jestlerin saniyede ~30 kez sonup yanmasina yol
+  // aciyordu. Bunun yerine son gecerli tespit tekrar kullanilir; tespit
+  // gercekten eskidiyse (kamera dondu, el cikti) bos donulur.
+  recentPackets(nowMs, maxAgeMs = 220) {
+    if (!this.available) return [];
+    return nowMs - this.lastDetectionTime < maxAgeMs ? this.lastPackets : [];
   }
 
   get detectorFps() {

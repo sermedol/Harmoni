@@ -1,4 +1,4 @@
-import { CAMERA_PROFILES, buildVideoConstraints } from "./camera-math.js?v=20260802-02";
+import { CAMERA_PROFILES, buildVideoConstraints } from "./camera-math.js?v=20260802-03";
 
 const ERRORS = {
   insecure: ["Güvenli bağlantı gerekli", "Kamera yalnızca HTTPS veya localhost üzerinden çalışır."],

@@ -3,23 +3,23 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-02";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-02";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-02";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-02";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-02";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-02";
-import { createAppState } from "./app-state.js?v=20260802-02";
-import { Camera } from "./camera/camera.js?v=20260802-02";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-02";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-02";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-02";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-02";
-import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-02";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-02";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-02";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-02";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-02";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-03";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-03";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-03";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-03";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-03";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-03";
+import { createAppState } from "./app-state.js?v=20260802-03";
+import { Camera } from "./camera/camera.js?v=20260802-03";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-03";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-03";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-03";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-03";
+import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-03";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-03";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-03";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-03";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-03";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -73,6 +73,8 @@ const els = {
   cameraStatusLive: document.getElementById("camera-status-live"),
   cameraHint: document.getElementById("camera-hint"),
   cameraActive: document.getElementById("camera-active"),
+  handStatus: document.getElementById("hand-status"),
+  handStatusText: document.getElementById("hand-status-text"),
   optCamera: document.getElementById("opt-camera"),
   cameraSwitch: document.getElementById("camera-switch"),
   cameraRestart: document.getElementById("camera-restart"),
@@ -737,6 +739,43 @@ function updateAdaptiveProfile(processMs) {
   }
 }
 
+// El takibinin durumunu ekranda gorunur kilar. Model yuklenemediginde eskiden
+// hicbir sey olmuyordu: el iskeleti hic cikmiyor ama sebebi belli olmuyordu.
+let lastHandStatusKey = "";
+function updateHandStatus(packets) {
+  if (!els.handStatus) return;
+  const visible = document.body.classList.contains("started") && state.cameraStatus === "ONLINE";
+  els.handStatus.hidden = !visible;
+  if (!visible) return;
+
+  const model = state.capabilities.handModel;
+  const count = packets.length;
+  let key, text, cls;
+  if (model === "partial") {
+    key = "failed";
+    text = "El takibi yüklenemedi";
+    cls = "failed";
+  } else if (model === "loading") {
+    key = "loading";
+    text = "El takibi yükleniyor";
+    cls = "";
+  } else if (count > 0) {
+    key = `on:${count}`;
+    text = count > 1 ? `${count} el algılandı` : "1 el algılandı";
+    cls = "tracking";
+  } else {
+    key = "off";
+    text = "El aranıyor";
+    cls = "";
+  }
+  // aria-live alaninin her karede tekrar okunmamasi icin yalnizca degisince yaz.
+  if (key === lastHandStatusKey) return;
+  lastHandStatusKey = key;
+  els.handStatusText.textContent = text;
+  els.handStatus.classList.toggle("tracking", cls === "tracking");
+  els.handStatus.classList.toggle("failed", cls === "failed");
+}
+
 function drawRealFrame(video) {
   const srcW = video.videoWidth || sceneWidth;
   const srcH = video.videoHeight || sceneHeight;
@@ -845,6 +884,10 @@ function tick() {
       state.detectorFps = handTracker.detectorFps;
       const processMs = performance.now() - analysisStarted;
       if (processMs > 1) updateAdaptiveProfile(processMs);
+    } else if (handTracker) {
+      // Yeni video karesi yok: son gecerli tespiti koru. Aksi halde eller
+      // ara karelerde kayboluyor ve iskelet titriyordu.
+      packets = handTracker.recentPackets(now);
     }
     sampleCameraConditions(now, packets);
     updateCameraDiagnostics(packets);
@@ -854,6 +897,7 @@ function tick() {
     state.cameraStatus = "OFFLINE";
   }
 
+  updateHandStatus(packets);
   gestureController.update(packets);
   updateMusicalAnalysis();
   const theme = getTheme(state.themeIndex);

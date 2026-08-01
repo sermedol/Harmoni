@@ -3,9 +3,9 @@
 // guzellestirme zinciri) baglandi. Gercek HarmonyEngine akor/makam verisi
 // (Milestone 6, su an icin sabit bir yerlesik C majör akoru ve Hicaz makami
 // varsayilan olarak kullanilir) henuz yok.
-import { SynthEngine } from "./synth-engine.js?v=20260802-02";
-import { VocalDSP } from "./vocal-dsp.js?v=20260802-02";
-import { PitchTracker } from "./pitch-tracker.js?v=20260802-02";
+import { SynthEngine } from "./synth-engine.js?v=20260802-03";
+import { VocalDSP } from "./vocal-dsp.js?v=20260802-03";
+import { PitchTracker } from "./pitch-tracker.js?v=20260802-03";
 
 const DEFAULT_MUSIC = {
   bpm: 96,

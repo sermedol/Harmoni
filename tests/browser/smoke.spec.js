@@ -87,15 +87,25 @@ test("DOM chrome does not overlap the canvas HUD blocks", async ({ page }) => {
     };
     const intersects = (a, b) => !(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]);
     const found = [];
-    for (const selector of [".camera-active", "#panel-toggle", ".rec-badge", ".feza-signature"]) {
+    const boxes = {};
+    for (const selector of [".camera-active", ".hand-status", "#panel-toggle", ".rec-badge", ".feza-signature"]) {
       const element = document.querySelector(selector);
       if (!element) continue;
       element.hidden = false;
       const rect = element.getBoundingClientRect();
       if (!rect.width || !rect.height) continue;
       const local = [rect.left - stageRect.left, rect.top - stageRect.top, rect.right - stageRect.left, rect.bottom - stageRect.top];
+      boxes[selector] = local;
       for (const [name, zone] of Object.entries(zones)) {
         if (intersects(local, zone)) found.push(`${selector} ~ ${name}`);
+      }
+    }
+    // Sag kenardaki durum rayinda ogeler ust uste dizili; birbirlerine de
+    // binmemeliler.
+    const names = Object.keys(boxes);
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        if (intersects(boxes[names[i]], boxes[names[j]])) found.push(`${names[i]} ~ ${names[j]}`);
       }
     }
     return found;

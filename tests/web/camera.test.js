@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitContain, fitCover, sceneSizeForViewport, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
-import { associateHandLabels, createOneEuroFilter, fingerStates } from "../../docs/js/camera/hand-tracker.js";
+import { HandTracker, associateHandLabels, createOneEuroFilter, fingerStates } from "../../docs/js/camera/hand-tracker.js";
 import { classifyGesture } from "../../docs/js/camera/gesture-classifier.js";
 import { interpolateLandmark } from "../../docs/js/hud/hand-skeleton.js";
 
@@ -115,6 +115,22 @@ test("naturally open hand still counts as open when fingers bend slightly", () =
   assert.deepEqual(fingerStates(handWithFingerBend(145)).slice(1), [true, true, true, true]);
   // Gercekten bukulmus parmaklar hala acik sayilmamali.
   assert.deepEqual(fingerStates(handWithFingerBend(120)).slice(1), [false, false, false, false]);
+});
+
+test("hands survive render frames that have no new camera image", () => {
+  // Kamera 30fps, sahne 60fps: karelerin yarisinda yeni video karesi yoktur.
+  // O karelerde el listesi bosaltilirsa iskelet ve jestler saniyede ~30 kez
+  // sonup yanar. Son gecerli tespit korunmali, ama sonsuza kadar degil.
+  const tracker = new HandTracker();
+  tracker.available = true;
+  tracker.lastPackets = [{ label: "RIGHT" }];
+  tracker.lastDetectionTime = 1000;
+
+  assert.equal(tracker.recentPackets(1100).length, 1, "taze tespit korunmali");
+  assert.equal(tracker.recentPackets(1400).length, 0, "bayat tespit birakilmali");
+
+  tracker.available = false;
+  assert.equal(tracker.recentPackets(1100).length, 0, "model yokken el bildirilmemeli");
 });
 
 test("closed fist is not misread as a pinch", () => {
