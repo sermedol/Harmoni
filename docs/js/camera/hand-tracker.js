@@ -109,9 +109,9 @@ export class HandTracker {
         let normalized;
         if (previous) {
           normalized = rawNormalized.map((p, i) => [
-            previous[i][0] * 0.45 + p[0] * 0.55,
-            previous[i][1] * 0.45 + p[1] * 0.55,
-            previous[i][2] * 0.45 + p[2] * 0.55,
+            previous[i][0] * 0.68 + p[0] * 0.32,
+            previous[i][1] * 0.68 + p[1] * 0.32,
+            previous[i][2] * 0.68 + p[2] * 0.32,
           ]);
         } else {
           normalized = rawNormalized;
