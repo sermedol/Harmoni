@@ -15,7 +15,7 @@ import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-17";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-19";
 import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;
@@ -28,7 +28,7 @@ const config = loadConfig();
 config.theme_index = 0;
 const state = createAppState();
 state.themeIndex = 0;
-state.simpleMode = config.simple_mode;
+state.simpleMode = true;
 state.monitorEnabled = config.monitor_enabled;
 state.tonalSelection = config.tonal_selection;
 state.musicGain = config.piano_volume;
