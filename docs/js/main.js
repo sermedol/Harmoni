@@ -10,8 +10,9 @@ import { GENRES, getGenre } from "./constants/genres.js?v=20260801-25";
 import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260801-25";
 import { loadConfig, saveConfig } from "./config.js?v=20260801-25";
 import { createAppState } from "./app-state.js?v=20260801-25";
-import { Camera } from "./camera/camera.js?v=20260801-25";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260801-25";
+import { Camera } from "./camera/camera.js?v=20260801-26";
+import { fitCover, shouldMirror } from "./camera/camera-math.js?v=20260801-26";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260801-26";
 import { GestureController } from "./camera/gesture-controller.js?v=20260801-25";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-25";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-25";
@@ -63,6 +64,16 @@ const els = {
   cameraErrorTitle: document.getElementById("camera-error-title"),
   cameraErrorDetail: document.getElementById("camera-error-detail"),
   cameraRetryButton: document.getElementById("camera-retry-button"),
+  cameraStatusLive: document.getElementById("camera-status-live"),
+  cameraHint: document.getElementById("camera-hint"),
+  cameraActive: document.getElementById("camera-active"),
+  optCamera: document.getElementById("opt-camera"),
+  cameraSwitch: document.getElementById("camera-switch"),
+  cameraRestart: document.getElementById("camera-restart"),
+  optCameraMirror: document.getElementById("opt-camera-mirror"),
+  optCameraPerformance: document.getElementById("opt-camera-performance"),
+  optCameraDiagnostics: document.getElementById("opt-camera-diagnostics"),
+  cameraDiagnostics: document.getElementById("camera-diagnostics"),
   advStatusLine: document.getElementById("adv-status-line"),
   advStatusSub: document.getElementById("adv-status-sub"),
   advGestureRow: document.getElementById("adv-gesture-row"),
@@ -103,13 +114,26 @@ const els = {
   guideClose: document.getElementById("guide-close"),
 };
 
-els.sceneCanvas.width = CAM_WIDTH;
-els.sceneCanvas.height = CAM_HEIGHT;
 const ctx = els.sceneCanvas.getContext("2d");
 const inferenceCanvas = document.createElement("canvas");
 inferenceCanvas.width = 640;
 inferenceCanvas.height = 360;
 const inferenceCtx = inferenceCanvas.getContext("2d", { alpha: false });
+const lightCanvas = document.createElement("canvas");
+lightCanvas.width = 32;
+lightCanvas.height = 18;
+const lightCtx = lightCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+let sceneScale = 1;
+
+function resizeSceneCanvas() {
+  const nextScale = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+  if (sceneScale === nextScale && els.sceneCanvas.width === Math.round(CAM_WIDTH * nextScale)) return;
+  sceneScale = nextScale;
+  els.sceneCanvas.width = Math.round(CAM_WIDTH * sceneScale);
+  els.sceneCanvas.height = Math.round(CAM_HEIGHT * sceneScale);
+  ctx.setTransform(sceneScale, 0, 0, sceneScale, 0, 0);
+}
+resizeSceneCanvas();
 
 function applyModeVisibility() {
   // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada
@@ -622,13 +646,6 @@ function updateHudLive() {
   }
 }
 
-function fitContain(srcW, srcH, dstW, dstH) {
-  const scale = Math.min(dstW / srcW, dstH / srcH);
-  const dw = srcW * scale;
-  const dh = srcH * scale;
-  return { dx: (dstW - dw) / 2, dy: (dstH - dh) / 2, dw, dh };
-}
-
 let camera = null;
 let handTracker = null;
 let demoSource = null;
@@ -638,36 +655,72 @@ let renderLoopStarted = false;
 let renderFrameId = 0;
 let startPromise = null;
 let destroyed = false;
+let cameraStartPromise = null;
+let activeMirror = true;
+let lastVideoFrameAt = 0;
+let displayFrameCounter = 0;
+let displayFpsStarted = performance.now();
+let noHandsSince = performance.now();
+let lastHintAt = 0;
+let brightnessSampleAt = 0;
+let averageBrightness = 128;
+let analysisProfile = "balanced";
+let slowAnalysisCount = 0;
+let fastAnalysisCount = 0;
+
+function setAnalysisProfile(profile) {
+  analysisProfile = profile;
+  const profiles = {
+    quality: [768, 432, 1], balanced: [640, 360, 2], performance: [480, 270, 3],
+  };
+  const [width, height, every] = profiles[profile] || profiles.balanced;
+  if (inferenceCanvas.width !== width) {
+    inferenceCanvas.width = width;
+    inferenceCanvas.height = height;
+  }
+  if (handTracker) handTracker.processEvery = every;
+  state.cameraPerformance = profile;
+}
+
+function updateAdaptiveProfile(processMs) {
+  const requested = config.camera_performance || "auto";
+  if (requested !== "auto") return setAnalysisProfile(requested);
+  if (processMs > 42) { slowAnalysisCount += 1; fastAnalysisCount = 0; }
+  else if (processMs < 25) { fastAnalysisCount += 1; slowAnalysisCount = 0; }
+  else { slowAnalysisCount = Math.max(0, slowAnalysisCount - 1); fastAnalysisCount = 0; }
+  if (slowAnalysisCount > 18 && analysisProfile !== "performance") {
+    setAnalysisProfile(analysisProfile === "quality" ? "balanced" : "performance");
+    slowAnalysisCount = 0;
+  } else if (fastAnalysisCount > 180 && analysisProfile !== "quality") {
+    setAnalysisProfile(analysisProfile === "performance" ? "balanced" : "quality");
+    fastAnalysisCount = 0;
+  }
+}
 
 function drawRealFrame(video) {
   const srcW = video.videoWidth || CAM_WIDTH;
   const srcH = video.videoHeight || CAM_HEIGHT;
-  const { dx, dy, dw, dh } = fitContain(srcW, srcH, CAM_WIDTH, CAM_HEIGHT);
+  const crop = fitCover(srcW, srcH, CAM_WIDTH, CAM_HEIGHT);
   ctx.save();
-  const frameBg = ctx.createLinearGradient(0, 0, CAM_WIDTH, CAM_HEIGHT);
-  frameBg.addColorStop(0, "#090507");
-  frameBg.addColorStop(0.5, "#160a0f");
-  frameBg.addColorStop(1, "#090507");
-  ctx.fillStyle = frameBg;
-  ctx.fillRect(0, 0, CAM_WIDTH, CAM_HEIGHT);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  if (config.mirror) {
+  if (activeMirror) {
     ctx.translate(CAM_WIDTH, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, srcW, srcH, CAM_WIDTH - dx - dw, dy, dw, dh);
-  } else {
-    ctx.drawImage(video, 0, 0, srcW, srcH, dx, dy, dw, dh);
   }
+  ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, CAM_WIDTH, CAM_HEIGHT);
   ctx.restore();
 }
 
 function drawInferenceFrame(video) {
   const iw = inferenceCanvas.width;
   const ih = inferenceCanvas.height;
+  const srcW = video.videoWidth || iw;
+  const srcH = video.videoHeight || ih;
+  const crop = fitCover(srcW, srcH, iw, ih);
   inferenceCtx.save();
-  if (config.mirror) { inferenceCtx.translate(iw, 0); inferenceCtx.scale(-1, 1); }
-  inferenceCtx.drawImage(video, 0, 0, video.videoWidth || iw, video.videoHeight || ih, 0, 0, iw, ih);
+  if (activeMirror) { inferenceCtx.translate(iw, 0); inferenceCtx.scale(-1, 1); }
+  inferenceCtx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, iw, ih);
   inferenceCtx.restore();
 }
 
@@ -686,6 +739,44 @@ function renderLoop() {
   renderFrameId = requestAnimationFrame(frame);
 }
 
+function sampleCameraConditions(now, hands) {
+  if (now - brightnessSampleAt > 1200) {
+    brightnessSampleAt = now;
+    const sw = 32, sh = 18;
+    try {
+      lightCtx.drawImage(inferenceCanvas, 0, 0, sw, sh);
+      const sample = lightCtx.getImageData(0, 0, sw, sh).data;
+      let total = 0;
+      for (let i = 0; i < sample.length; i += 4) total += sample[i] * .2126 + sample[i + 1] * .7152 + sample[i + 2] * .0722;
+      averageBrightness = total / (sample.length / 4);
+    } catch { averageBrightness = 128; }
+  }
+  if (hands.length) noHandsSince = now;
+  let hint = "";
+  if (averageBrightness < 43) hint = "Ellerinizi daha iyi algılayabilmem için ortamı biraz aydınlatın.";
+  else if (now - noHandsSince > 6500) hint = "Ellerinizi kameranın gördüğü alana getirin ve iki elinizin de tamamen görünmesini sağlayın.";
+  if (hint && now - lastHintAt > 8000) {
+    lastHintAt = now;
+    els.cameraHint.textContent = hint;
+    els.cameraHint.hidden = false;
+  } else if (!hint || now - lastHintAt > 5500) {
+    els.cameraHint.hidden = true;
+  }
+}
+
+function updateCameraDiagnostics(hands = []) {
+  if (!els.cameraDiagnostics || !config.camera_diagnostics) return;
+  const s = camera?.settings || {};
+  els.cameraDiagnostics.textContent = [
+    `Kamera: ${state.cameraName || "—"}`,
+    `Kaynak: ${s.width || 0}×${s.height || 0} @ ${Math.round(s.frameRate || 0)} FPS`,
+    `Sahne: ${state.cameraFps.toFixed(0)} FPS · DPR ${sceneScale.toFixed(1)}`,
+    `El analizi: ${state.detectorFps.toFixed(0)} FPS · ${inferenceCanvas.width}×${inferenceCanvas.height}`,
+    `MediaPipe: ${handTracker?.delegate || "bekleniyor"} · El: ${hands.length}`,
+    `Profil: ${state.cameraPerformance} · Track: ${camera?.track?.readyState || "—"}`,
+  ].join("\n");
+}
+
 function tick() {
   const now = performance.now();
   const t = now / 1000;
@@ -696,14 +787,21 @@ function tick() {
     packets = demoSource.next();
     state.cameraStatus = "ONLINE";
     state.cameraFps = 60;
-  } else if (camera && camera.status === "ONLINE") {
+  } else if (camera && camera.status === "online") {
     drawRealFrame(camera.video);
     state.cameraStatus = "ONLINE";
-    if (handTracker) {
+    const videoFrameTime = camera.video.currentTime;
+    if (handTracker && videoFrameTime !== lastVideoFrameAt && !document.hidden) {
+      lastVideoFrameAt = videoFrameTime;
       drawInferenceFrame(camera.video);
+      const analysisStarted = performance.now();
       packets = handTracker.process(inferenceCanvas, now, CAM_WIDTH, CAM_HEIGHT);
       state.detectorFps = handTracker.detectorFps;
+      const processMs = performance.now() - analysisStarted;
+      if (processMs > 1) updateAdaptiveProfile(processMs);
     }
+    sampleCameraConditions(now, packets);
+    updateCameraDiagnostics(packets);
   } else {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, CAM_WIDTH, CAM_HEIGHT);
@@ -721,6 +819,7 @@ function tick() {
 
   frameCount += 1;
   if (now - fpsWindowStart > 1000) {
+    state.cameraFps = frameCount * 1000 / (now - fpsWindowStart);
     fpsWindowStart = now;
     frameCount = 0;
   }
@@ -736,13 +835,52 @@ function hideCameraError() {
   els.cameraErrorOverlay.hidden = true;
 }
 
-async function tryStartCamera() {
+function announceCamera(message) {
+  if (els.cameraStatusLive) els.cameraStatusLive.textContent = message;
+}
+
+function populateCameraDevices(devices) {
+  if (!els.optCamera) return;
+  const selected = config.camera_device_id || "";
+  els.optCamera.replaceChildren(new Option("Varsayılan kamera", ""));
+  devices.forEach((device, index) => els.optCamera.add(new Option(device.label || `Kamera ${index + 1}`, device.deviceId)));
+  els.optCamera.value = devices.some((device) => device.deviceId === selected) ? selected : "";
+  els.cameraSwitch.hidden = devices.length < 2;
+}
+
+function bindCamera(cameraInstance) {
+  cameraInstance.addEventListener("deviceschange", (event) => populateCameraDevices(event.detail));
+  cameraInstance.addEventListener("statechange", (event) => {
+    const { status, reason } = event.detail;
+    document.querySelector(".stage")?.classList.toggle("camera-starting", ["requesting", "starting"].includes(status));
+    document.querySelector(".stage")?.classList.toggle("camera-online", status === "online");
+    els.cameraActive.hidden = status !== "online";
+    if (status === "requesting") announceCamera("Kamera izni bekleniyor");
+    if (status === "starting") announceCamera("Kamera hazırlanıyor");
+    if (status === "online") announceCamera("Kamera hazır");
+    if (status === "interrupted") {
+      announceCamera("Kamera bağlantısı kesildi");
+      state.cameraStatus = "INTERRUPTED";
+      handTracker?.reset?.();
+      if (reason === "ended") showCameraError({ title: "Kamera bağlantısı kesildi", detail: "Kamerayı yeniden bağlayıp Tekrar dene'ye basın." });
+    }
+  });
+}
+
+async function tryStartCamera(options = {}) {
+  if (cameraStartPromise) return cameraStartPromise;
+  cameraStartPromise = tryStartCameraOnce(options).finally(() => { cameraStartPromise = null; });
+  return cameraStartPromise;
+}
+
+async function tryStartCameraOnce({ facingMode = config.camera_facing_mode, deviceId = config.camera_device_id } = {}) {
   state.capabilities.camera = "requesting";
   els.cameraRetryButton.disabled = true;
   els.cameraRetryButton.textContent = "Deneniyor...";
-  camera?.stop();
+  camera?.destroy();
   camera = new Camera();
-  const ok = await camera.start();
+  bindCamera(camera);
+  const ok = await camera.start({ deviceId, facingMode });
   // Kamera goruntusu HEMEN gorunur olmali - el takibi modelinin (MediaPipe,
   // CDN'den indirilir) veya mikrofon izninin bitmesini BEKLEMEZ. Bu ikisi
   // yavas/engelli bir agda uzun surebilir; onceden bunlarin bitmesini
@@ -753,15 +891,26 @@ async function tryStartCamera() {
   if (ok) {
     hideCameraError();
     state.capabilities.camera = "ready";
+    state.cameraSettings = camera.settings;
+    state.cameraName = camera.track?.label || camera.devices.find((device) => device.deviceId === camera.settings.deviceId)?.label || "Kamera";
+    activeMirror = shouldMirror(camera.settings, config.camera_mirror);
+    config.camera_device_id = camera.settings.deviceId || deviceId || "";
+    config.camera_facing_mode = camera.settings.facingMode || facingMode || "user";
+    persistConfig();
+    populateCameraDevices(camera.devices);
+    announceCamera(`Kamera hazır: ${camera.width}×${camera.height}`);
     if (!handTracker) {
       handTracker = new HandTracker({ processEvery: 2 });
+      setAnalysisProfile(config.camera_performance === "auto" ? "balanced" : config.camera_performance);
       state.capabilities.handModel = "loading";
+      announceCamera("Kamera görüntüsü geldi; el modeli hazırlanıyor");
       handTracker.init().then((ready) => {
         state.capabilities.handModel = ready ? "ready" : "partial";
+        announceCamera(ready ? "Kamera ve el algılama hazır" : "Kamera hazır; el modeli yüklenemedi");
       });
     }
   } else {
-    state.capabilities.camera = camera.error?.title?.includes("reddedildi") ? "denied" : "error";
+    state.capabilities.camera = ["NotAllowedError", "PermissionDismissedError"].includes(camera.error?.code) ? "denied" : "error";
     showCameraError(camera.error);
   }
   els.cameraRetryButton.disabled = false;
@@ -837,7 +986,7 @@ async function destroyExperience() {
   destroyed = true;
   state.lifecycle = "STOPPING";
   if (recorder?.recording) await recorder.stop();
-  camera?.stop();
+  camera?.destroy();
   audioGraph?.stop();
   if (renderFrameId) cancelAnimationFrame(renderFrameId);
   renderLoopStarted = false;
@@ -934,6 +1083,64 @@ function bootstrap() {
   });
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
+  });
+  if (els.optCamera) {
+    els.optCamera.value = config.camera_device_id || "";
+    els.optCamera.addEventListener("change", async () => {
+      config.camera_device_id = els.optCamera.value;
+      persistConfig();
+      handTracker?.reset?.();
+      await tryStartCamera({ deviceId: config.camera_device_id });
+    });
+  }
+  els.cameraRestart?.addEventListener("click", () => tryStartCamera());
+  els.cameraSwitch?.addEventListener("click", async () => {
+    if (camera?.devices?.length > 1) {
+      const index = Math.max(0, camera.devices.findIndex((device) => device.deviceId === config.camera_device_id));
+      config.camera_device_id = camera.devices[(index + 1) % camera.devices.length].deviceId;
+    } else {
+      config.camera_device_id = "";
+      config.camera_facing_mode = config.camera_facing_mode === "environment" ? "user" : "environment";
+    }
+    persistConfig();
+    handTracker?.reset?.();
+    await tryStartCamera();
+  });
+  if (els.optCameraMirror) {
+    els.optCameraMirror.value = config.camera_mirror || "auto";
+    els.optCameraMirror.addEventListener("change", () => {
+      config.camera_mirror = els.optCameraMirror.value;
+      activeMirror = shouldMirror(camera?.settings, config.camera_mirror);
+      handTracker?.reset?.();
+      persistConfig();
+    });
+  }
+  if (els.optCameraPerformance) {
+    els.optCameraPerformance.value = config.camera_performance || "auto";
+    els.optCameraPerformance.addEventListener("change", () => {
+      config.camera_performance = els.optCameraPerformance.value;
+      setAnalysisProfile(config.camera_performance === "auto" ? "balanced" : config.camera_performance);
+      persistConfig();
+    });
+  }
+  if (els.optCameraDiagnostics) {
+    els.optCameraDiagnostics.checked = Boolean(config.camera_diagnostics);
+    els.cameraDiagnostics.hidden = !config.camera_diagnostics;
+    els.optCameraDiagnostics.addEventListener("change", () => {
+      config.camera_diagnostics = els.optCameraDiagnostics.checked;
+      els.cameraDiagnostics.hidden = !config.camera_diagnostics;
+      persistConfig();
+    });
+  }
+  window.addEventListener("resize", resizeSceneCanvas, { passive: true });
+  window.addEventListener("orientationchange", () => { resizeSceneCanvas(); handTracker?.reset?.(); }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      handTracker?.reset?.();
+      return;
+    }
+    lastVideoFrameAt = 0;
+    if (camera?.track?.readyState === "ended") tryStartCamera();
   });
   els.recordDownload?.addEventListener("click", () => {
     if (recordResult) downloadBlob(recordResult, timestampName("harmoni", "webm"));

@@ -7,6 +7,11 @@ export const DEFAULT_CONFIG = {
   piano_volume: 0.30,
   performance: "balanced",
   input_profile: "speaker",
+  camera_device_id: "",
+  camera_facing_mode: "user",
+  camera_mirror: "auto",
+  camera_performance: "auto",
+  camera_diagnostics: false,
   // Mikrofon analizi bundan bağımsızdır. Bu seçenek yalnızca vokali
   // hoparlöre geri verir ve hoparlör kullanımında uğultu oluşturabilir.
   monitor_enabled: false,

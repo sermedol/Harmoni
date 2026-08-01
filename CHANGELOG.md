@@ -136,3 +136,11 @@
 - Kayıt önizleme/indirme/silme akışı.
 - Node birim testleri ve Chromium masaüstü/mobil CI smoke testleri.
 
+### Kamera deneyimi
+
+- 1080p'den cihaz varsayılanına kademeli kamera başlangıcı ve gerçek track ayarları.
+- Kamera seçimi, ön/arka geçiş, otomatik aynalama, yeniden başlatma ve cihaz değişimi takibi.
+- Ana görüntü ile MediaPipe için ortak, esnetmeyen `cover` koordinat dönüşümü.
+- 1.5× sınırlı yüksek DPI sahne ve bağımsız, uyarlanabilir analiz çözünürlüğü.
+- Uyarlanabilir landmark smoothing, kısa kayıp toleransı ve el geçmişi temizliği.
+- Düşük ışık/kadraj uyarıları, kamera durumları, tanılama ve gizlilik açıklaması.

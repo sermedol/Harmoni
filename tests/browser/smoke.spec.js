@@ -24,3 +24,11 @@ test("390px portrait has no horizontal document overflow", async ({ page }) => {
   const dimensions = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
 });
+
+test("camera controls and privacy disclosure are available", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });
+  await expect(page.locator(".camera-privacy")).toContainText("Sunucuya yüklenmez");
+  await expect(page.locator("#opt-camera-performance")).toHaveValue("auto");
+  await expect(page.locator("#camera-restart")).toHaveAttribute("aria-label", "Kamerayı yeniden başlat");
+});
