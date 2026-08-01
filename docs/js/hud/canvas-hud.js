@@ -5,11 +5,16 @@ const FONT = '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
 const MONO = '"Cascadia Mono", "SFMono-Regular", monospace';
 
 function text(ctx, value, x, y, size, color, weight = 500, align = "left", family = FONT) {
+  ctx.save();
   ctx.font = `${weight} ${size}px ${family}`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
   ctx.textBaseline = "alphabetic";
+  ctx.shadowColor = "rgba(0,0,0,.88)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
   ctx.fillText(String(value), x, y);
+  ctx.restore();
 }
 
 function fitText(ctx, value, maxWidth, size, weight = 500, family = FONT) {
@@ -85,8 +90,8 @@ function drawWave(ctx, waveform, x, y, w, h, color) {
 }
 
 function metric(ctx, label, value, x, y, theme, width) {
-  text(ctx, label, x, y, 8, theme.muted, 700, "left", MONO);
-  text(ctx, fitText(ctx, value, width, 14, 650, MONO), x, y + 23, 14, theme.text, 650, "left", MONO);
+  text(ctx, label, x, y, 9, theme.muted, 750, "left", MONO);
+  text(ctx, fitText(ctx, value, width, 15, 700, MONO), x, y + 24, 15, theme.text, 700, "left", MONO);
 }
 
 export function drawCanvasHud(ctx, v, theme, W, H) {
@@ -103,32 +108,40 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, W, H);
 
+  // Hareketli ve açık renkli kamera görüntülerinde üst bilgiler kaybolmasın.
+  const topShade = ctx.createLinearGradient(0, 0, 0, 122);
+  topShade.addColorStop(0, "rgba(8,3,5,.68)");
+  topShade.addColorStop(0.72, "rgba(8,3,5,.28)");
+  topShade.addColorStop(1, "rgba(8,3,5,0)");
+  ctx.fillStyle = topShade;
+  ctx.fillRect(0, 0, W, 122);
+
   corner(ctx, safe, safe, 1, 1, accent, 28);
   corner(ctx, W - safe, safe, -1, 1, accent, 28);
   corner(ctx, safe, H - safe, 1, -1, accent, 28);
   corner(ctx, W - safe, H - safe, -1, -1, accent, 28);
 
   // Left identity rail.
-  text(ctx, "HARMONİ", 34, 46, 17, theme.text, 760);
-  text(ctx, "PERFORMANS / 01", 34, 63, 8, theme.muted, 650, "left", MONO);
+  text(ctx, "HARMONİ", 34, 46, 19, theme.text, 780);
+  text(ctx, "PERFORMANS / 01", 34, 65, 9, theme.muted, 700, "left", MONO);
   line(ctx, 34, 73, 182, 73, accent, 2, 0.8);
   const statusColor = v.ready ? theme.success : theme.warning;
   ctx.beginPath(); ctx.arc(35, 91, 3.5, 0, Math.PI * 2); ctx.fillStyle = statusColor; ctx.fill();
-  text(ctx, fitText(ctx, v.statusLabel || "Hazırlanıyor", 145, 9, 600), 46, 94, 9, theme.text, 600);
+  text(ctx, fitText(ctx, v.statusLabel || "Hazırlanıyor", 145, 10, 650), 46, 95, 10, theme.text, 650);
 
   // Central musical readout: typography and rails instead of another card.
   const centerY = 48;
-  text(ctx, "ŞU ANKİ EŞLİK", W / 2, 27, 8, theme.muted, 700, "center", MONO);
-  text(ctx, fitText(ctx, v.chordName || "—", 360, 31, 720), W / 2, centerY + 14, 31, theme.text, 720, "center");
-  text(ctx, `${v.tonalBadge || "BATI"}  ·  ${v.genreLabel || "SERBEST"}`, W / 2, centerY + 34, 9, accent, 700, "center", MONO);
+  text(ctx, "ŞU ANKİ EŞLİK", W / 2, 28, 9, theme.muted, 750, "center", MONO);
+  text(ctx, fitText(ctx, v.chordName || "—", 390, 33, 760), W / 2, centerY + 16, 33, theme.text, 760, "center");
+  text(ctx, fitText(ctx, `${v.tonalBadge || "BATI"}  ·  ${v.genreLabel || "SERBEST"}`, 360, 10, 750, MONO), W / 2, centerY + 37, 10, accent, 750, "center", MONO);
   line(ctx, W / 2 - 215, 89, W / 2 + 215, 89, theme.panel2, 1, 0.72);
   const scanX = W / 2 - 215 + ((now / 7) % 430);
   line(ctx, scanX - 35, 89, scanX, 89, accent, 2, 0.75);
 
   // Right tempo rail — large enough to glance at, compact enough not to cover video.
-  text(ctx, "TEMPO", W - 34, 31, 8, theme.muted, 700, "right", MONO);
-  text(ctx, Math.round(v.bpm), W - 34, 60, 27, theme.text, 720, "right", MONO);
-  text(ctx, "BPM", W - 34, 75, 8, accent, 700, "right", MONO);
+  text(ctx, "TEMPO", W - 34, 31, 9, theme.muted, 750, "right", MONO);
+  text(ctx, Math.round(v.bpm), W - 34, 62, 29, theme.text, 760, "right", MONO);
+  text(ctx, "BPM", W - 34, 78, 9, accent, 750, "right", MONO);
   drawBeat(ctx, W - 91, 92, v.bpm, theme, 19);
 
   // Gesture reticle only appears when a meaningful gesture exists.
@@ -149,10 +162,10 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   glass(ctx, deckX, deckY, deckW, deckH, theme, 0.83);
   line(ctx, deckX, deckY, deckX + deckW, deckY, accent, 1.5, 0.9);
 
-  text(ctx, "LIVE INPUT", deckX + 14, deckY + 18, 8, accent, 750, "left", MONO);
+  text(ctx, "CANLI GİRİŞ", deckX + 14, deckY + 19, 9, accent, 780, "left", MONO);
   const note = v.voiced ? v.noteName : "—";
   text(ctx, note, deckX + 14, deckY + 55, 31, theme.text, 720, "left", MONO);
-  text(ctx, v.voiced ? `${v.frequency.toFixed(1)} Hz` : "SES BEKLENİYOR", deckX + 15, deckY + 76, 9, theme.muted, 600, "left", MONO);
+  text(ctx, v.voiced ? `${v.frequency.toFixed(1)} Hz` : "SES BEKLENİYOR", deckX + 15, deckY + 77, 10, theme.muted, 650, "left", MONO);
   const confidence = Math.max(0, Math.min(1, v.pitchConfidence || 0));
   line(ctx, deckX + 15, deckY + 93, deckX + 133, deckY + 93, theme.panel2, 3, 0.75);
   line(ctx, deckX + 15, deckY + 93, deckX + 15 + 118 * confidence, deckY + 93, accent, 3, 0.95);
@@ -166,13 +179,13 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
 
   const waveX = metricX + 370;
   const waveW = Math.max(120, deckX + deckW - waveX - 18);
-  text(ctx, "CANLI SES İZİ", waveX, deckY + 18, 8, theme.muted, 700, "left", MONO);
+  text(ctx, "CANLI SES İZİ", waveX, deckY + 19, 9, theme.muted, 750, "left", MONO);
   drawWave(ctx, v.waveform, waveX, deckY + 29, waveW, 48, accent);
 
   const names = v.instruments || [];
   const orchestra = names.length ? names.join("  ·  ") : "Eşlik için ses bekleniyor";
-  text(ctx, `ORKESTRA / ${names.length} KATMAN`, metricX, deckY + 90, 8, theme.muted, 700, "left", MONO);
-  text(ctx, fitText(ctx, orchestra, Math.max(120, waveX - metricX - 18), 9, 550), metricX, deckY + 105, 9, theme.text, 550);
+  text(ctx, `ORKESTRA / ${names.length} KATMAN`, metricX, deckY + 90, 9, theme.muted, 750, "left", MONO);
+  text(ctx, fitText(ctx, orchestra, Math.max(120, waveX - metricX - 18), 10, 600), metricX, deckY + 105, 10, theme.text, 600);
 
   if (v.recording) {
     ctx.fillStyle = theme.danger;
