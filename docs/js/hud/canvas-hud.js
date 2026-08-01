@@ -92,28 +92,20 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   label(ctx, `${Math.round(v.bpm)} BPM`, cx + 20, 96, 12, theme.muted);
   pill(ctx, cx + cw - 96, 74, v.tonalBadge, accent, theme.bg, 11);
 
-  // ---- Sag ust: soylenen nota ----
+  // ---- Sag ust: canli tempo ----
   const nw = 150;
   const nx = W - nw - 20;
   card(ctx, nx, 18, nw, 92, theme, { accent: theme.primary, alpha: 0.86 });
-  label(ctx, v.voiced ? "SESİN" : "MİKROFON GİRİŞİ", nx + 18, 40, 10.5, theme.muted, "600");
-  if (v.voiced) {
-    label(ctx, v.noteName || "--", nx + 18, 76, 32, theme.primary, "700");
-    label(ctx, `${v.frequency.toFixed(1)} Hz`, nx + 18, 98, 11, theme.muted);
-  } else {
-    const meterX = nx + 18;
-    const meterY = 57;
-    const meterW = nw - 36;
-    const level = Math.min(1, Math.max(0, v.inputLevel || 0));
-    roundRect(ctx, meterX, meterY, meterW, 9, 4.5);
-    ctx.fillStyle = theme.panel2;
+  label(ctx, "TEMPO", nx + 18, 40, 10.5, theme.muted, "600");
+  label(ctx, String(Math.round(v.bpm)), nx + 18, 76, 30, theme.primary, "700");
+  label(ctx, "BPM", nx + 74, 74, 10, theme.muted, "700");
+  const beatMs = 60000 / Math.max(1, v.bpm);
+  const beatIndex = Math.floor(Date.now() / beatMs) % 4;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(nx + 82 + i * 14, 94, i === beatIndex ? 4 : 2.6, 0, Math.PI * 2);
+    ctx.fillStyle = i === beatIndex ? theme.primary : theme.panel2;
     ctx.fill();
-    if (level > 0.01) {
-      roundRect(ctx, meterX, meterY, Math.max(9, meterW * level), 9, 4.5);
-      ctx.fillStyle = level > 0.82 ? theme.warning : theme.primary;
-      ctx.fill();
-    }
-    label(ctx, level > 0.03 ? "Sinyal alınıyor" : "Mikrofon hazır", meterX, 89, 11, level > 0.03 ? theme.text : theme.muted, "600");
   }
 
   // ---- Alt bilgi satiri: durum ve orkestra ----
@@ -169,21 +161,18 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
     cellX += item.width;
   }
 
-  const levelX = cellX + 13;
-  const levelW = 126;
-  label(ctx, "GİRİŞ SEVİYESİ", levelX, ay + 22, 8.5, theme.muted, "600");
-  roundRect(ctx, levelX, ay + 36, levelW, 9, 4.5);
-  ctx.fillStyle = theme.panel2;
-  ctx.fill();
-  const liveLevel = Math.min(1, Math.max(0, v.inputLevel || 0));
-  if (liveLevel > 0.01) {
-    roundRect(ctx, levelX, ay + 36, Math.max(9, levelW * liveLevel), 9, 4.5);
-    ctx.fillStyle = liveLevel > 0.82 ? theme.warning : theme.primary;
+  const rhythmX = cellX + 13;
+  const rhythmW = 126;
+  label(ctx, "VURUŞ", rhythmX, ay + 22, 8.5, theme.muted, "600");
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(rhythmX + 8 + i * 25, ay + 42, i === beatIndex ? 6 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = i === beatIndex ? theme.primary : theme.panel2;
     ctx.fill();
   }
-  label(ctx, liveLevel > 0.03 ? "Sinyal" : "Hazır", levelX, ay + 60, 9.5, liveLevel > 0.03 ? theme.text : theme.muted, "600");
+  label(ctx, "4 / 4", rhythmX + 101, ay + 46, 9, theme.muted, "600");
 
-  const waveX = levelX + levelW + 24;
+  const waveX = rhythmX + rhythmW + 24;
   const waveW = ax + aw - waveX - 16;
   label(ctx, "CANLI DALGA", waveX, ay + 19, 8.5, theme.muted, "600");
   const wf = v.waveform;
