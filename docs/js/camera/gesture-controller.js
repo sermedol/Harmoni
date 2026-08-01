@@ -5,8 +5,6 @@
 // 3-4) main.js bir stub gecebilir; bu dosyanin kendisi degismez.
 import { clamp, lerp } from "../constants/music-utils.js";
 
-const CAM_WIDTH = 1280;
-
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
@@ -25,6 +23,8 @@ export class GestureController {
     this.lastPalm = new Map(); // label -> {point, time, size}
     this.brightnessSmooth = 1.0;
     this.articulationSmooth = 0.5;
+    this.previousGestures = new Map();
+    this.dualTriggered = false;
   }
 
   _allowed(event, cooldown = 1.1) {
@@ -84,6 +84,8 @@ export class GestureController {
       this.state.gesture = "SCANNING";
       this.state.gestureDetail = "ELLER BEKLENIYOR";
       this.dualOpenSince = null;
+      this.dualTriggered = false;
+      this.previousGestures.clear();
       return;
     }
 
@@ -93,14 +95,16 @@ export class GestureController {
       const held = performance.now() / 1000 - this.dualOpenSince;
       this.state.gesture = "DUAL OPEN";
       this.state.gestureDetail = `FULL ORCHESTRA ARMING ${held.toFixed(1)}s`;
-      if (held > 0.55 && this._allowed("DUAL_OPEN", 2.0)) {
+      if (held > 0.55 && !this.dualTriggered) {
         this.synthActions.fullOrchestra();
+        this.dualTriggered = true;
         this.state.gestureDetail = "TAM ORKESTRA AKTIF";
       }
       this._mapHandDistance(openHands[0], openHands[1]);
       return;
     }
     this.dualOpenSince = null;
+    this.dualTriggered = false;
 
     const pinches = hands.filter((h) => h.gesture === "PINCH");
     if (pinches.length) {
@@ -114,17 +118,20 @@ export class GestureController {
 
     const hand = hands.reduce((best, h) => (h.confidence > best.confidence ? h : best), hands[0]);
     const gesture = hand.gesture;
+    const previousGesture = this.previousGestures.get(hand.label) || "NEUTRAL";
+    const entered = gesture !== previousGesture;
+    this.previousGestures.set(hand.label, gesture);
     this.state.gesture = `${hand.label} ${gesture}`;
 
     if (gesture === "OPEN_HAND") {
       const target = hand.label === "RIGHT" ? "STRINGS" : "PAD";
-      if (this._allowed(`OPEN_${hand.label}`, 1.4)) {
+      if (entered) {
         if (!this.state.activeLayers.has(target)) this.synthActions.toggleLayer(target);
       }
       this.state.gestureDetail = `${target} KATMANI ACIK`;
     } else if (gesture === "PEACE") {
       let detail;
-      if (this._allowed(`PEACE_${hand.label}`)) {
+      if (entered) {
         const active = this.synthActions.toggleLayer("DRUMS");
         detail = active ? "DRUMS AKTIF" : "DRUMS KAPALI";
       } else {
@@ -132,11 +139,11 @@ export class GestureController {
       }
       this.state.gestureDetail = detail;
     } else if (gesture === "FIST") {
-      if (this._allowed(`FIST_${hand.label}`)) this.synthActions.muteExtras();
+      if (entered) this.synthActions.muteExtras();
       this.state.gestureDetail = "EK KATMANLAR SUSTURULDU";
     } else if (gesture === "POINT") {
       let detail;
-      if (this._allowed(`POINT_${hand.label}`)) {
+      if (entered) {
         const layer = this.layerOrder[this.layerCursor % this.layerOrder.length];
         this.layerCursor += 1;
         const active = this.synthActions.toggleLayer(layer);
@@ -152,7 +159,8 @@ export class GestureController {
 
   _mapHandDistance(left, right) {
     const d = dist(left.palmCenter, right.palmCenter);
-    const normalized = clamp((d / CAM_WIDTH - 0.12) / 0.52, 0, 1);
-    this.synthActions.setDensityGain(lerp(0.24, 0.62, normalized), lerp(0.19, 0.35, normalized));
+    const referenceSize = Math.max(24, (left.handSize + right.handSize) / 2);
+    const normalized = clamp((d / referenceSize - 1.4) / 5.6, 0, 1);
+    this.synthActions.setDensityGain(lerp(0.24, 0.62, normalized));
   }
 }

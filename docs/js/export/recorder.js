@@ -48,7 +48,13 @@ export class SessionRecorder {
     try {
       const videoStream = this.canvas.captureStream(fps);
       const tracks = [...videoStream.getVideoTracks()];
-      if (this.audioStream) tracks.push(...this.audioStream.getAudioTracks());
+      const audioTracks = this.audioStream?.getAudioTracks?.() || [];
+      if (!audioTracks.length) {
+        this.lastError = "Kayıt ses yolu hazır değil; yalnız video kaydı başlatılmadı.";
+        for (const track of videoStream.getTracks()) track.stop();
+        return false;
+      }
+      tracks.push(...audioTracks);
       const mixed = new MediaStream(tracks);
 
       const mimeType = pickMimeType();
@@ -56,6 +62,10 @@ export class SessionRecorder {
       this.chunks = [];
       this.recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) this.chunks.push(e.data);
+      };
+      this.recorder.onerror = (event) => {
+        this.lastError = event?.error?.message || "Kayıt sırasında beklenmeyen bir hata oluştu.";
+        this.recording = false;
       };
       this.recorder.start(250);
       this.recording = true;

@@ -1,5 +1,18 @@
 # Harmoni V3
 
+## Web sürümü
+
+Üretim odaklı tarayıcı sürümü `docs/` altında yer alır ve GitHub Pages üzerinden
+[sermedol.github.io/Harmoni](https://sermedol.github.io/Harmoni/) adresinde yayımlanır.
+Kamera ve mikrofon yalnızca kullanıcı **Performansı Başlat** düğmesine bastıktan
+sonra açılır. En iyi sonuç için kulaklık kullanılması önerilir.
+
+- Mimari: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Müzik modeli: [docs/MUSICAL_MODEL.md](docs/MUSICAL_MODEL.md)
+- Test ve doğrulama: [docs/TESTING.md](docs/TESTING.md)
+- Kamera sistemi: [docs/CAMERA.md](docs/CAMERA.md)
+- Davranış denetimi: [docs/AUDIT.md](docs/AUDIT.md)
+
 Harmoni; kamera açıkken elleri takip eden, mikrofondan söylenen melodiyi analiz eden, vokalin altında piyano eşliği üreten ve el hareketleriyle ek enstrüman katmanlarını yöneten masaüstü Python uygulamasıdır.
 
 Bu sürüm özellikle iki sorunu düzeltir:

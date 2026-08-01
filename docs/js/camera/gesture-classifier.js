@@ -6,7 +6,7 @@
 export function classifyGesture(fingers, pinch) {
   const [thumb, index, middle, ring, pinky] = fingers;
   const openCount = fingers.filter(Boolean).length;
-  if (pinch < 0.26) return "PINCH";
+  if (pinch < 0.29) return "PINCH";
   if (index && middle && !ring && !pinky) return "PEACE";
   if (index && !middle && !ring && !pinky) return "POINT";
   if (openCount >= 4) return "OPEN_HAND";
@@ -18,6 +18,7 @@ export function classifyGesture(fingers, pinch) {
 // >=3/5 ayni jest degilse onceki (fallback) jest korunur (titremeyi onler).
 export function createGestureHistory(maxLen = 5) {
   const histories = new Map();
+  const stable = new Map();
   return {
     stabilize(label, gesture) {
       let history = histories.get(label);
@@ -37,7 +38,12 @@ export function createGestureHistory(maxLen = 5) {
           bestCount = count;
         }
       }
-      return bestCount >= 3 ? best : gesture;
+      if (bestCount >= 3) stable.set(label, best);
+      return stable.get(label) || gesture;
+    },
+    reset(label) {
+      if (label) { histories.delete(label); stable.delete(label); }
+      else { histories.clear(); stable.clear(); }
     },
   };
 }

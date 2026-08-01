@@ -44,14 +44,16 @@
 
       <div class="rec-badge" id="rec-badge" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
 
-      <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekler">☰</button>
+      <button class="panel-toggle" id="panel-toggle" aria-label="Menüyü aç"><span>☰</span> MENÜ</button>
+      <button class="panel-backdrop" id="panel-backdrop" aria-label="Menüyü kapat" tabindex="-1"></button>
 
       <div class="options-panel soft-card" id="options-panel" role="complementary" aria-label="Seçenekler">
           <div class="panel-title">
-            <span>Seçenekler</span>
+            <span>Kontroller</span>
             <button class="panel-close" id="panel-close" aria-label="Kapat">×</button>
           </div>
 
+          <div class="panel-section-title">Müzikal yapı</div>
           <label class="option-row">
             <span>Müzik türü</span>
             <!-- genres.js tarafindan doldurulur -->
@@ -66,7 +68,7 @@
           </label>
 
           <label class="option-row">
-            <span>Eşlik sesi <b id="opt-volume-value">30%</b></span>
+            <span>Eşlik seviyesi <b id="opt-volume-value">30%</b></span>
             <input type="range" id="opt-volume" min="8" max="46" value="30" />
           </label>
 
@@ -77,29 +79,50 @@
 
           <div class="option-divider"></div>
 
-          <div class="option-row"><span>Orkestra</span></div>
+          <div class="panel-section-title">Orkestra katmanları</div>
           <div class="instrument-grid" id="instrument-grid"></div>
           <div class="option-button-row">
-            <button class="option-button compact" id="opt-full-orchestra">Tümü</button>
+            <button class="option-button compact" id="opt-full-orchestra">Tümünü aç</button>
             <button class="option-button compact" id="opt-mute">Yalnız piyano</button>
           </div>
 
           <div class="option-divider"></div>
 
-          <button class="option-button record" id="opt-record">● Kayıt başlat</button>
+          <div class="panel-section-title">Oturum</div>
+          <div class="capability-status" id="capability-status" role="status" aria-live="polite">Bileşenler bekleniyor</div>
+          <div id="camera-settings" hidden>
+          <div class="panel-section-title">Kamera</div>
+          <label class="option-row"><span>Kamera seç</span><select id="opt-camera"><option value="">Varsayılan kamera</option></select></label>
+          <div class="option-button-row camera-actions">
+            <button class="option-button compact" id="camera-switch" aria-label="Ön ve arka kamera arasında geçiş yap" hidden>Kamerayı çevir</button>
+            <button class="option-button compact" id="camera-restart" aria-label="Kamerayı yeniden başlat">Yeniden başlat</button>
+          </div>
+          <label class="option-row"><span>Aynalama</span><select id="opt-camera-mirror"><option value="auto">Otomatik</option><option value="on">Açık</option><option value="off">Kapalı</option></select></label>
+          <label class="option-row"><span>Performans</span><select id="opt-camera-performance"><option value="auto">Otomatik</option><option value="quality">Kalite</option><option value="balanced">Dengeli</option><option value="performance">Performans</option></select></label>
+          <label class="diagnostic-toggle"><input type="checkbox" id="opt-camera-diagnostics"> Tanılama bilgilerini göster</label>
+          <div class="camera-diagnostics" id="camera-diagnostics" hidden></div>
+          </div>
+          <label class="option-row">
+            <span>Ses giriş profili</span>
+            <select id="opt-input-profile">
+              <option value="speaker">Hoparlör modu</option>
+              <option value="music">Kulaklık / müzik modu</option>
+            </select>
+          </label>
+          <div class="option-hint">Kulaklık modu perde ve vokal kalitesini korur; hoparlör modu geri beslemeyi azaltır.</div>
+          <button class="option-button record" id="opt-record">● Kaydı başlat</button>
           <label class="option-row">
             <span>Tema</span>
             <select id="opt-theme">
-              <option value="0">Midnight</option>
-              <option value="1">Studio</option>
-              <option value="2">Anadolu</option>
-              <option value="3">Daylight</option>
+              <option value="0">Bordo</option>
             </select>
           </label>
-          <button class="option-button" id="opt-monitor-toggle">Mikrofon: Açık</button>
-          <button class="option-button" id="opt-mode-toggle">Gelişmiş görünüm</button>
-          <button class="option-button" id="opt-guide">Kılavuz (/)</button>
+          <button class="option-button" id="opt-monitor-toggle">Vokal duyumu: Kapalı</button>
+          <button class="option-button" id="opt-mode-toggle" hidden>Gelişmiş görünüm</button>
+          <button class="option-button guide-action" id="opt-guide">Kullanım kılavuzu <kbd>/</kbd></button>
       </div>
+
+      <div class="feza-signature">feza işlevli oyuncaklarını sunar :)</div>
 
       <div id="hud-advanced" class="hud-advanced" hidden>
         <div class="adv-row adv-header-row">
@@ -108,7 +131,7 @@
             <div class="sub" id="adv-version">v0.1 web | tema Midnight</div>
           </div>
           <div class="soft-card adv-music-card">
-            <div class="card-label">SU ANKI ESLIK</div>
+            <div class="card-label">ŞU ANKİ EŞLİK</div>
             <div class="music-row">
               <span class="chord-name" id="adv-chord-name">--</span>
               <span class="chord-func" id="adv-chord-func">--</span>
@@ -118,8 +141,8 @@
             <div class="tonal-badge pill" id="adv-tonal-badge">BATI</div>
           </div>
           <div class="soft-card adv-status-card">
-            <div class="status-line" id="adv-status-line">Dinliyor ve eslik ediyor</div>
-            <div class="status-sub" id="adv-status-sub">kamera 0fps  el 0fps  gecikme 0ms</div>
+            <div class="status-line" id="adv-status-line">Dinliyor ve eşlik ediyor</div>
+            <div class="status-sub" id="adv-status-sub">kamera 0fps · el 0fps · gecikme 0ms</div>
           </div>
         </div>
 
@@ -128,16 +151,16 @@
             <div class="card-label">VOKAL</div>
             <div class="vocal-note" id="adv-vocal-note">--</div>
             <div class="vocal-hz" id="adv-vocal-hz">0.0 Hz  +0.0 cent</div>
-            <div class="meter-row"><span>NOTA NETLIGI</span><div class="led-meter" id="adv-confidence-meter"></div></div>
-            <div class="meter-row"><span>SES SEVIYESI</span><div class="led-meter" id="adv-level-meter"></div></div>
+            <div class="meter-row"><span>NOTA NETLİĞİ</span><div class="led-meter" id="adv-confidence-meter"></div></div>
+            <div class="meter-row"><span>SES SEVİYESİ</span><div class="led-meter" id="adv-level-meter"></div></div>
             <div class="key-row" id="adv-key-row">-- / --</div>
             <div class="pill" id="adv-reverb-pill">Reverb %0</div>
           </div>
           <div class="adv-orchestra-card soft-card">
             <div class="card-label">ORKESTRA (12 KATMAN)</div>
-            <div class="arranger-status" id="adv-arranger-status">Otomatik duzenleme (A ile kapat)</div>
+            <div class="arranger-status" id="adv-arranger-status">Otomatik düzenleme · A ile kapat</div>
             <div class="orchestra-grid" id="adv-orchestra-grid"></div>
-            <div class="gesture-row" id="adv-gesture-row">HAREKET IZLENIYOR</div>
+            <div class="gesture-row" id="adv-gesture-row">HAREKET İZLENİYOR</div>
             <div class="meter-row"><span>PARLAKLIK</span><div class="led-meter" id="adv-brightness-meter"></div></div>
             <div class="meter-row"><span>LEGATO</span><div class="led-meter" id="adv-articulation-meter"></div></div>
           </div>

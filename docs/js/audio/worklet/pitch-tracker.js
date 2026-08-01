@@ -49,7 +49,7 @@ function modeLowestTieBreak(arr) {
 
 function defaultSnapshot(rms, confidence, timestamp) {
   return {
-    frequency: 0, midiNote: -1, noteName: "--", confidence, rms, cents: 0, voiced: false, timestamp,
+    frequency: 0, midiFloat: -1, midiNote: -1, pitchClass: -1, noteName: "--", confidence, rms, cents: 0, voiced: false, timestamp,
   };
 }
 
@@ -61,6 +61,8 @@ export class PitchTracker {
     this.frequencyHistory = [];
     this.noteHistory = [];
     this.lastSnapshot = defaultSnapshot(0, 0, 0);
+    this.stablePitch = null;
+    this.stableCandidate = null;
   }
 
   // mono: Float64Array (bu blogun ham mikrofon orneklegi).
@@ -76,7 +78,31 @@ export class PitchTracker {
     if (this.writeCount < 1024) return this.lastSnapshot;
     this.writeCount = 0;
     this.lastSnapshot = this.detect(this.buffer.subarray(this.buffer.length - 3072), now);
+    this._updateStable(this.lastSnapshot, now);
     return this.lastSnapshot;
+  }
+
+  _updateStable(pitch, now) {
+    if (!pitch.voiced) {
+      if (this.stableCandidate && now - this.stableCandidate.lastSeen > 260) {
+        if (this.stablePitch) this.stablePitch = { ...this.stablePitch, endedAt: now };
+        this.stableCandidate = null;
+      }
+      return;
+    }
+    const pc = ((Math.round(pitch.midiFloat) % 12) + 12) % 12;
+    if (!this.stableCandidate || Math.abs(this.stableCandidate.midiFloat - pitch.midiFloat) > 0.65) {
+      this.stableCandidate = { startedAt: now, lastSeen: now, midiFloat: pitch.midiFloat };
+      return;
+    }
+    this.stableCandidate.lastSeen = now;
+    this.stableCandidate.midiFloat = this.stableCandidate.midiFloat * 0.75 + pitch.midiFloat * 0.25;
+    const durationMs = now - this.stableCandidate.startedAt;
+    if (durationMs >= 160) this.stablePitch = {
+      frequency: pitch.frequency, midiFloat: this.stableCandidate.midiFloat, pitchClass: pc,
+      noteName: pitch.noteName, confidence: pitch.confidence, durationMs,
+      startedAt: this.stableCandidate.startedAt, endedAt: null,
+    };
   }
 
   detect(samplesIn, now) {
@@ -91,7 +117,9 @@ export class PitchTracker {
       sumSq += x[i] * x[i];
     }
     const rms = Math.sqrt(sumSq / n + 1e-12);
-    if (rms < 0.0045) {
+    // Dizüstü/telefon mikrofonlarında sakin vokali de yakala; düşük güven
+    // eşiği tek başına ortam gürültüsünün nota sayılmasını engeller.
+    if (rms < 0.0022) {
       this.frequencyHistory.length = 0;
       this.noteHistory.length = 0;
       return defaultSnapshot(rms, 0, now);
@@ -147,7 +175,7 @@ export class PitchTracker {
 
     const frequency = this.sampleRate / Math.max(lag, 1.0);
     const confidence = Math.max(0, Math.min(1, corr[Math.round(lag)] / zero));
-    if (frequency < minFreq || frequency > maxFreq || confidence < 0.24) {
+    if (frequency < minFreq || frequency > maxFreq || confidence < 0.20) {
       return defaultSnapshot(rms, confidence, now);
     }
 
@@ -163,7 +191,9 @@ export class PitchTracker {
 
     return {
       frequency: smoothFrequency,
+      midiFloat,
       midiNote,
+      pitchClass: ((midiNote % 12) + 12) % 12,
       noteName: midiToName(midiNote, true),
       confidence,
       rms,

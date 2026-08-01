@@ -16,16 +16,29 @@ import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
+let sceneWidth = CAM_WIDTH;
+let sceneHeight = CAM_HEIGHT;
 const DEMO_MODE = new URLSearchParams(location.search).has("demo");
 
 const config = loadConfig();
+// Web arayuzunun tek ve kalici gorunumu: Bordo.
+// Eski oturumlardan kalmis tema tercihlerini de burada gecersiz kilariz.
+config.theme_index = 0;
+// Kamera seçimi kullanıcıdan gizlidir: her açılışta tarayıcının/işletim
+// sisteminin varsayılan kamerası kullanılır.
+config.camera_device_id = "";
+config.camera_facing_mode = "";
 const state = createAppState();
-state.themeIndex = config.theme_index;
-state.simpleMode = config.simple_mode;
-state.monitorEnabled = config.monitor_enabled;
+state.themeIndex = 0;
+state.simpleMode = true;
+// Eski sürümden kalan açık tercih akustik geri besleme yaratmasın. Nota ve
+// frekans analizi monitor kapalıyken de kesintisiz çalışır.
+config.monitor_enabled = false;
+state.monitorEnabled = false;
 state.tonalSelection = config.tonal_selection;
 state.musicGain = config.piano_volume;
 state.genreId = config.genre_id;
+saveConfig(config);
 
 const els = {
   hudSimple: document.getElementById("hud-simple"),
@@ -51,6 +64,16 @@ const els = {
   cameraErrorTitle: document.getElementById("camera-error-title"),
   cameraErrorDetail: document.getElementById("camera-error-detail"),
   cameraRetryButton: document.getElementById("camera-retry-button"),
+  cameraStatusLive: document.getElementById("camera-status-live"),
+  cameraHint: document.getElementById("camera-hint"),
+  cameraActive: document.getElementById("camera-active"),
+  optCamera: document.getElementById("opt-camera"),
+  cameraSwitch: document.getElementById("camera-switch"),
+  cameraRestart: document.getElementById("camera-restart"),
+  optCameraMirror: document.getElementById("opt-camera-mirror"),
+  optCameraPerformance: document.getElementById("opt-camera-performance"),
+  optCameraDiagnostics: document.getElementById("opt-camera-diagnostics"),
+  cameraDiagnostics: document.getElementById("camera-diagnostics"),
   advStatusLine: document.getElementById("adv-status-line"),
   advStatusSub: document.getElementById("adv-status-sub"),
   advGestureRow: document.getElementById("adv-gesture-row"),
@@ -62,6 +85,16 @@ const els = {
   optMute: document.getElementById("opt-mute"),
   optGuide: document.getElementById("opt-guide"),
   optMonitorToggle: document.getElementById("opt-monitor-toggle"),
+  optInputProfile: document.getElementById("opt-input-profile"),
+  startInputProfile: document.getElementById("start-input-profile"),
+  capabilityStatus: document.getElementById("capability-status"),
+  recordResultOverlay: document.getElementById("record-result-overlay"),
+  recordPreview: document.getElementById("record-preview"),
+  recordMeta: document.getElementById("record-meta"),
+  recordDownload: document.getElementById("record-download"),
+  recordNew: document.getElementById("record-new"),
+  recordDelete: document.getElementById("record-delete"),
+  recordResultClose: document.getElementById("record-result-close"),
   optVolume: document.getElementById("opt-volume"),
   optVolumeValue: document.getElementById("opt-volume-value"),
   optBpm: document.getElementById("opt-bpm"),
@@ -76,9 +109,33 @@ const els = {
   recTime: document.getElementById("rec-time"),
 };
 
-els.sceneCanvas.width = CAM_WIDTH;
-els.sceneCanvas.height = CAM_HEIGHT;
 const ctx = els.sceneCanvas.getContext("2d");
+const inferenceCanvas = document.createElement("canvas");
+inferenceCanvas.width = 640;
+inferenceCanvas.height = 360;
+const inferenceCtx = inferenceCanvas.getContext("2d", { alpha: false });
+const lightCanvas = document.createElement("canvas");
+lightCanvas.width = 32;
+lightCanvas.height = 18;
+const lightCtx = lightCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+let sceneScale = 1;
+
+function resizeSceneCanvas() {
+  const size = sceneSizeForViewport(window.innerWidth, window.innerHeight);
+  const portrait = size.portrait;
+  const nextWidth = size.width;
+  const nextHeight = size.height;
+  const nextScale = portrait ? 1 : Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+  if (sceneScale === nextScale && sceneWidth === nextWidth && sceneHeight === nextHeight && els.sceneCanvas.width === Math.round(nextWidth * nextScale)) return;
+  sceneWidth = nextWidth;
+  sceneHeight = nextHeight;
+  sceneScale = nextScale;
+  els.sceneCanvas.width = Math.round(sceneWidth * sceneScale);
+  els.sceneCanvas.height = Math.round(sceneHeight * sceneScale);
+  ctx.setTransform(sceneScale, 0, 0, sceneScale, 0, 0);
+  if (DEMO_MODE && document.body.classList.contains("started")) demoSource = createDemoHandSource(sceneWidth, sceneHeight);
+}
+resizeSceneCanvas();
 
 function applyModeVisibility() {
   // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada
@@ -101,6 +158,7 @@ function persistConfig() {
     monitor_enabled: state.monitorEnabled,
     tonal_selection: state.tonalSelection,
     piano_volume: state.musicGain,
+    input_profile: config.input_profile,
     genre_id: state.genreId,
   });
 }
@@ -121,8 +179,8 @@ function toggleMode() {
   updateOptionsPanel();
 }
 
-function cycleTheme(index) {
-  state.themeIndex = index;
+function cycleTheme() {
+  state.themeIndex = 0;
   applyThemeUI();
   persistConfig();
   updateOptionsPanel();
@@ -131,6 +189,7 @@ function cycleTheme(index) {
 function toggleGuide() {
   state.showGuide = !state.showGuide;
   els.guideOverlay.hidden = !state.showGuide;
+  if (state.showGuide) setPanelOpen(false);
 }
 
 function populateTonalSelect() {
@@ -261,6 +320,8 @@ function setBpm(value) {
 
 // --- Kayit (video + duyulan ses: orkestra + islenmis vokal) ---
 let recorder = null;
+let recordResult = null;
+let recordResultUrl = "";
 
 async function toggleRecording() {
   if (!recorder) {
@@ -271,7 +332,7 @@ async function toggleRecording() {
     els.optRecord.classList.remove("active");
     els.optRecord.textContent = "● Kayıt başlat";
     els.recBadge.hidden = true;
-    if (blob && blob.size > 0) downloadBlob(blob, timestampName("harmoni", "webm"));
+    if (blob && blob.size > 0) showRecordResult(blob);
     return;
   }
   const ok = recorder.start(30);
@@ -295,7 +356,40 @@ function updateRecordingBadge() {
 }
 
 function setPanelOpen(open) {
+  const wasOpen = els.optionsPanel?.classList.contains("open");
   els.optionsPanel?.classList.toggle("open", open);
+  if (els.optionsPanel) {
+    els.optionsPanel.inert = !open;
+    els.optionsPanel.setAttribute("aria-hidden", String(!open));
+  }
+  document.body.classList.toggle("menu-open", open);
+  els.panelBackdrop?.classList.toggle("visible", open);
+  if (els.panelToggle) {
+    els.panelToggle.setAttribute("aria-expanded", String(open));
+    els.panelToggle.setAttribute("aria-label", open ? "Menüyü kapat" : "Menüyü aç");
+  }
+  if (els.optInputProfile) els.optInputProfile.value = config.input_profile;
+  if (els.startInputProfile) els.startInputProfile.value = config.input_profile;
+  if (open) requestAnimationFrame(() => els.panelClose?.focus());
+  else if (wasOpen) els.panelToggle?.focus();
+}
+
+function clearRecordResult() {
+  if (recordResultUrl) URL.revokeObjectURL(recordResultUrl);
+  recordResultUrl = "";
+  recordResult = null;
+  if (els.recordPreview) { els.recordPreview.pause(); els.recordPreview.removeAttribute("src"); els.recordPreview.load(); }
+  if (els.recordResultOverlay) els.recordResultOverlay.hidden = true;
+}
+
+function showRecordResult(blob) {
+  clearRecordResult();
+  recordResult = blob;
+  recordResultUrl = URL.createObjectURL(blob);
+  els.recordPreview.src = recordResultUrl;
+  els.recordMeta.textContent = `${(blob.size / 1024 / 1024).toFixed(1)} MB · ${blob.type || "WebM"}`;
+  els.recordResultOverlay.hidden = false;
+  els.recordDownload.focus();
 }
 
 function updateOptionsPanel() {
@@ -303,7 +397,7 @@ function updateOptionsPanel() {
   if (els.optTonal) els.optTonal.value = state.tonalSelection;
   if (els.optModeToggle) els.optModeToggle.textContent = state.simpleMode ? "Gelişmiş görünüm" : "Basit görünüm";
   if (els.optMonitorToggle) {
-    els.optMonitorToggle.textContent = `Mikrofon: ${state.monitorEnabled ? "Açık" : "Kapalı"}`;
+    els.optMonitorToggle.textContent = `Vokal duyumu: ${state.monitorEnabled ? "Açık" : "Kapalı"}`;
   }
 }
 
@@ -314,6 +408,8 @@ function wireOptionsPanel() {
   els.optRecord?.addEventListener("click", () => toggleRecording());
   els.panelToggle?.addEventListener("click", () => setPanelOpen(!els.optionsPanel.classList.contains("open")));
   els.panelClose?.addEventListener("click", () => setPanelOpen(false));
+  els.panelBackdrop?.addEventListener("click", () => setPanelOpen(false));
+  els.guideClose?.addEventListener("click", () => toggleGuide());
   els.optVolume?.addEventListener("input", (e) => setMusicGain(Number(e.target.value) / 100));
   els.optBpm?.addEventListener("input", (e) => setBpm(Number(e.target.value)));
   els.optModeToggle?.addEventListener("click", () => {
@@ -321,6 +417,14 @@ function wireOptionsPanel() {
     updateOptionsPanel();
   });
   els.optMonitorToggle?.addEventListener("click", () => setMonitorEnabled(!state.monitorEnabled));
+  const setInputProfile = (value) => {
+    config.input_profile = value === "music" ? "music" : "speaker";
+    if (els.optInputProfile) els.optInputProfile.value = config.input_profile;
+    if (els.startInputProfile) els.startInputProfile.value = config.input_profile;
+    persistConfig();
+  };
+  els.optInputProfile?.addEventListener("change", (event) => setInputProfile(event.target.value));
+  els.startInputProfile?.addEventListener("change", (event) => setInputProfile(event.target.value));
   els.optFullOrchestra?.addEventListener("click", () => {
     synthActions.fullOrchestra();
     renderInstrumentGrid();
@@ -403,22 +507,24 @@ function skipIntro() {
 }
 
 function handleKeydown(event) {
-  if (event.key === "Tab") {
+  const target = event.target;
+  const typing = target instanceof HTMLInputElement || target instanceof HTMLSelectElement ||
+    target instanceof HTMLTextAreaElement || target?.isContentEditable;
+  if (els.startPanel?.classList.contains("intro-pending") && ["Enter", " ", "Escape"].includes(event.key)) {
     event.preventDefault();
-    toggleMode();
+    introSkipped = true;
+    revealStartPanel();
     return;
   }
+  if (typing) return;
   if (event.key === "/" || event.key === "?") {
     event.preventDefault();
     toggleGuide();
     return;
   }
-  if (event.key === "Escape" && state.showGuide) {
-    toggleGuide();
-    return;
-  }
-  if (["1", "2", "3", "4"].includes(event.key)) {
-    cycleTheme(Number(event.key) - 1);
+  if (event.key === "Escape") {
+    if (state.showGuide) toggleGuide();
+    else if (els.optionsPanel?.classList.contains("open")) setPanelOpen(false);
     return;
   }
   if (event.key === "t" || event.key === "T") {
@@ -496,16 +602,18 @@ function createSynthActions(state) {
       state.fxAmount = v;
       audioGraph?.postControl({ fxAmount: v });
     },
-    setDensityGain(density, gain) {
+    setDensityGain(density) {
       state.density = density;
-      state.musicGain = gain;
-      audioGraph?.postControl({ density, musicGain: gain });
+      audioGraph?.postControl({ density });
     },
   };
 }
 
 const synthActions = createSynthActions(state);
 const gestureController = new GestureController(state, synthActions);
+const phraseDetector = new PhraseDetector();
+const westernHarmony = new WesternHarmonyEngine();
+let lastPitchTimestamp = -1;
 
 // Canvas HUD'un ihtiyaci olan tum bilgiyi tek bir nesnede toplar.
 function buildHudView() {
@@ -531,6 +639,9 @@ function buildHudView() {
       : "BATI",
     noteName: state.pitch.voiced ? state.pitch.noteName : "--",
     frequency: state.pitch.frequency || 0,
+    inputLevel: Math.min(1, Math.max(0, (state.pitch.rms || 0) / 0.08)),
+    pitchConfidence: Math.min(1, Math.max(0, state.pitch.confidence || 0)),
+    pitchCents: state.pitch.cents || 0,
     voiced: !!state.pitch.voiced,
     ready: camOnline && audioOnline,
     statusLabel: camOnline && audioOnline
@@ -552,6 +663,13 @@ function updateHudLive() {
   const camOnline = state.cameraStatus === "ONLINE";
   const audioOnline = state.audioStatus === "ONLINE";
   const ready = camOnline && audioOnline;
+  if (!destroyed && (state.lifecycle === "STARTING_MEDIA" || state.lifecycle === "PARTIAL_READY")) {
+    state.lifecycle = ready ? "READY" : "PARTIAL_READY";
+  }
+  if (els.capabilityStatus) {
+    const c = state.capabilities;
+    els.capabilityStatus.textContent = `Kamera: ${c.camera} · Mikrofon: ${c.microphone} · El modeli: ${c.handModel} · Perde: ${c.pitch}`;
+  }
   els.simpleStatusDot.classList.toggle("ready", ready);
   els.simpleStatusLabel.textContent = ready
     ? "Hazır"
@@ -576,44 +694,146 @@ function updateHudLive() {
   }
 }
 
-function fitCover(srcW, srcH, dstW, dstH) {
-  const srcAspect = srcW / srcH;
-  const dstAspect = dstW / dstH;
-  let sw, sh, sx, sy;
-  if (srcAspect > dstAspect) {
-    sh = srcH;
-    sw = srcH * dstAspect;
-    sx = (srcW - sw) / 2;
-    sy = 0;
-  } else {
-    sw = srcW;
-    sh = srcW / dstAspect;
-    sx = 0;
-    sy = (srcH - sh) / 2;
-  }
-  return { sx, sy, sw, sh };
-}
-
 let camera = null;
 let handTracker = null;
 let demoSource = null;
 let frameCount = 0;
 let fpsWindowStart = performance.now();
+let renderLoopStarted = false;
+let renderFrameId = 0;
+let startPromise = null;
+let destroyed = false;
+let lastRenderAt = 0;
+let cameraStartPromise = null;
+let activeMirror = true;
+let lastVideoFrameAt = 0;
+let displayFrameCounter = 0;
+let displayFpsStarted = performance.now();
+let noHandsSince = performance.now();
+let lastHintAt = 0;
+let brightnessSampleAt = 0;
+let averageBrightness = 128;
+let analysisProfile = "balanced";
+let slowAnalysisCount = 0;
+let fastAnalysisCount = 0;
+
+function setAnalysisProfile(profile) {
+  analysisProfile = profile;
+  const profiles = {
+    quality: [768, 432, 1], balanced: [640, 360, 1], performance: [480, 270, 2],
+  };
+  let [width, height, every] = profiles[profile] || profiles.balanced;
+  if (sceneHeight > sceneWidth) {
+    width = height;
+    height = Math.round(width * sceneHeight / sceneWidth);
+  }
+  if (inferenceCanvas.width !== width) {
+    inferenceCanvas.width = width;
+    inferenceCanvas.height = height;
+  }
+  if (handTracker) handTracker.processEvery = every;
+  state.cameraPerformance = profile;
+}
+
+function updateAdaptiveProfile(processMs) {
+  const requested = config.camera_performance || "auto";
+  if (requested !== "auto") return setAnalysisProfile(requested);
+  if (processMs > 42) { slowAnalysisCount += 1; fastAnalysisCount = 0; }
+  else if (processMs < 25) { fastAnalysisCount += 1; slowAnalysisCount = 0; }
+  else { slowAnalysisCount = Math.max(0, slowAnalysisCount - 1); fastAnalysisCount = 0; }
+  if (slowAnalysisCount > 18 && analysisProfile !== "performance") {
+    setAnalysisProfile(analysisProfile === "quality" ? "balanced" : "performance");
+    slowAnalysisCount = 0;
+  } else if (fastAnalysisCount > 180 && analysisProfile !== "quality") {
+    setAnalysisProfile(analysisProfile === "performance" ? "balanced" : "quality");
+    fastAnalysisCount = 0;
+  }
+}
 
 function drawRealFrame(video) {
-  const { sx, sy, sw, sh } = fitCover(video.videoWidth, video.videoHeight, CAM_WIDTH, CAM_HEIGHT);
+  const srcW = video.videoWidth || sceneWidth;
+  const srcH = video.videoHeight || sceneHeight;
+  const frame = fitContain(srcW, srcH, sceneWidth, sceneHeight);
   ctx.save();
-  if (config.mirror) {
-    ctx.translate(CAM_WIDTH, 0);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, sceneWidth, sceneHeight);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (activeMirror) {
+    ctx.translate(sceneWidth, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, CAM_WIDTH, CAM_HEIGHT);
+  ctx.drawImage(video, 0, 0, srcW, srcH, frame.dx, frame.dy, frame.dw, frame.dh);
   ctx.restore();
 }
 
+function drawInferenceFrame(video) {
+  const iw = inferenceCanvas.width;
+  const ih = inferenceCanvas.height;
+  const srcW = video.videoWidth || iw;
+  const srcH = video.videoHeight || ih;
+  const frame = fitContain(srcW, srcH, iw, ih);
+  inferenceCtx.save();
+  inferenceCtx.fillStyle = "#000";
+  inferenceCtx.fillRect(0, 0, iw, ih);
+  if (activeMirror) { inferenceCtx.translate(iw, 0); inferenceCtx.scale(-1, 1); }
+  inferenceCtx.drawImage(video, 0, 0, srcW, srcH, frame.dx, frame.dy, frame.dw, frame.dh);
+  inferenceCtx.restore();
+}
+
 function renderLoop() {
-  requestAnimationFrame(renderLoop);
-  tick();
+  if (renderLoopStarted || destroyed) return;
+  renderLoopStarted = true;
+  const frame = (frameNow = performance.now()) => {
+    if (destroyed) return;
+    renderFrameId = requestAnimationFrame(frame);
+    if (sceneHeight > sceneWidth && frameNow - lastRenderAt < 30) return;
+    lastRenderAt = frameNow;
+    if (document.hidden && frameCount % 4 !== 0) {
+      frameCount += 1;
+      return;
+    }
+    tick();
+  };
+  renderFrameId = requestAnimationFrame(frame);
+}
+
+function sampleCameraConditions(now, hands) {
+  if (now - brightnessSampleAt > 1200) {
+    brightnessSampleAt = now;
+    const sw = 32, sh = 18;
+    try {
+      lightCtx.drawImage(inferenceCanvas, 0, 0, sw, sh);
+      const sample = lightCtx.getImageData(0, 0, sw, sh).data;
+      let total = 0;
+      for (let i = 0; i < sample.length; i += 4) total += sample[i] * .2126 + sample[i + 1] * .7152 + sample[i + 2] * .0722;
+      averageBrightness = total / (sample.length / 4);
+    } catch { averageBrightness = 128; }
+  }
+  if (hands.length) noHandsSince = now;
+  let hint = "";
+  if (averageBrightness < 43) hint = "Ellerinizi daha iyi algılayabilmem için ortamı biraz aydınlatın.";
+  else if (now - noHandsSince > 6500) hint = "Ellerinizi kameranın gördüğü alana getirin ve iki elinizin de tamamen görünmesini sağlayın.";
+  if (hint && now - lastHintAt > 8000) {
+    lastHintAt = now;
+    els.cameraHint.textContent = hint;
+    els.cameraHint.hidden = false;
+  } else if (!hint || now - lastHintAt > 5500) {
+    els.cameraHint.hidden = true;
+  }
+}
+
+function updateCameraDiagnostics(hands = []) {
+  if (!els.cameraDiagnostics || !config.camera_diagnostics) return;
+  const s = camera?.settings || {};
+  els.cameraDiagnostics.textContent = [
+    `Kamera: ${state.cameraName || "—"}`,
+    `Kaynak: ${s.width || 0}×${s.height || 0} @ ${Math.round(s.frameRate || 0)} FPS`,
+    `Sahne: ${state.cameraFps.toFixed(0)} FPS · DPR ${sceneScale.toFixed(1)}`,
+    `El analizi: ${state.detectorFps.toFixed(0)} FPS · ${inferenceCanvas.width}×${inferenceCanvas.height}`,
+    `MediaPipe: ${handTracker?.delegate || "bekleniyor"} · El: ${hands.length}`,
+    `Profil: ${state.cameraPerformance} · Track: ${camera?.track?.readyState || "—"}`,
+  ].join("\n");
 }
 
 function tick() {
@@ -622,33 +842,43 @@ function tick() {
 
   let packets = [];
   if (DEMO_MODE && demoSource) {
-    drawDemoBackground(ctx, CAM_WIDTH, CAM_HEIGHT, t);
+    drawDemoBackground(ctx, sceneWidth, sceneHeight, t);
     packets = demoSource.next();
     state.cameraStatus = "ONLINE";
     state.cameraFps = 60;
-  } else if (camera && camera.status === "ONLINE") {
+  } else if (camera && camera.status === "online") {
     drawRealFrame(camera.video);
     state.cameraStatus = "ONLINE";
-    if (handTracker) {
-      packets = handTracker.process(els.sceneCanvas, now, CAM_WIDTH, CAM_HEIGHT);
+    const videoFrameTime = camera.video.currentTime;
+    if (handTracker && videoFrameTime !== lastVideoFrameAt && !document.hidden) {
+      lastVideoFrameAt = videoFrameTime;
+      drawInferenceFrame(camera.video);
+      const analysisStarted = performance.now();
+      packets = handTracker.process(inferenceCanvas, now, sceneWidth, sceneHeight);
       state.detectorFps = handTracker.detectorFps;
+      const processMs = performance.now() - analysisStarted;
+      if (processMs > 1) updateAdaptiveProfile(processMs);
     }
+    sampleCameraConditions(now, packets);
+    updateCameraDiagnostics(packets);
   } else {
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, CAM_WIDTH, CAM_HEIGHT);
+    ctx.fillRect(0, 0, sceneWidth, sceneHeight);
     state.cameraStatus = "OFFLINE";
   }
 
   gestureController.update(packets);
+  updateMusicalAnalysis();
   const theme = getTheme(state.themeIndex);
   drawHandSkeletons(ctx, packets, theme);
   updateRecordingBadge();
   // Bilgi panelleri canvas'a cizilir -> hem ekranda hem de kayitta gorunur.
-  drawCanvasHud(ctx, buildHudView(), theme, CAM_WIDTH, CAM_HEIGHT);
+  drawCanvasHud(ctx, buildHudView(), theme, sceneWidth, sceneHeight);
   updateHudLive();
 
   frameCount += 1;
   if (now - fpsWindowStart > 1000) {
+    state.cameraFps = frameCount * 1000 / (now - fpsWindowStart);
     fpsWindowStart = now;
     frameCount = 0;
   }
@@ -673,8 +903,10 @@ function skipCamera() {
 async function tryStartCamera() {
   els.cameraRetryButton.disabled = true;
   els.cameraRetryButton.textContent = "Deneniyor...";
+  camera?.destroy();
   camera = new Camera();
-  const ok = await camera.start();
+  bindCamera(camera);
+  const ok = await camera.start({ deviceId, facingMode });
   // Kamera goruntusu HEMEN gorunur olmali - el takibi modelinin (MediaPipe,
   // CDN'den indirilir) veya mikrofon izninin bitmesini BEKLEMEZ. Bu ikisi
   // yavas/engelli bir agda uzun surebilir; onceden bunlarin bitmesini
@@ -684,11 +916,27 @@ async function tryStartCamera() {
   state.cameraStatus = camera.status;
   if (ok) {
     hideCameraError();
+    state.capabilities.camera = "ready";
+    state.cameraSettings = camera.settings;
+    state.cameraName = camera.track?.label || camera.devices.find((device) => device.deviceId === camera.settings.deviceId)?.label || "Kamera";
+    activeMirror = shouldMirror(camera.settings, config.camera_mirror);
+    config.camera_device_id = camera.settings.deviceId || deviceId || "";
+    config.camera_facing_mode = camera.settings.facingMode || facingMode || "user";
+    persistConfig();
+    populateCameraDevices(camera.devices);
+    announceCamera(`Kamera hazır: ${camera.width}×${camera.height}`);
     if (!handTracker) {
       handTracker = new HandTracker({ processEvery: 2 });
-      handTracker.init(); // kasitli olarak await edilmiyor (arka planda yuklenir)
+      setAnalysisProfile(config.camera_performance === "auto" ? "balanced" : config.camera_performance);
+      state.capabilities.handModel = "loading";
+      announceCamera("Kamera görüntüsü geldi; el modeli hazırlanıyor");
+      handTracker.init().then((ready) => {
+        state.capabilities.handModel = ready ? "ready" : "partial";
+        announceCamera(ready ? "Kamera ve el algılama hazır" : "Kamera hazır; el modeli yüklenemedi");
+      });
     }
   } else {
+    state.capabilities.camera = ["NotAllowedError", "PermissionDismissedError"].includes(camera.error?.code) ? "denied" : "error";
     showCameraError(camera.error);
   }
   els.cameraRetryButton.disabled = false;
@@ -697,17 +945,52 @@ async function tryStartCamera() {
 }
 
 function startExperience() {
+  if (startPromise) return startPromise;
+  startPromise = startExperienceOnce();
+  return startPromise;
+}
+
+function updateMusicalAnalysis() {
+  const pitch = state.pitch;
+  if (!pitch || pitch.timestamp === lastPitchTimestamp) return;
+  lastPitchTimestamp = pitch.timestamp;
+  const phrase = phraseDetector.update(pitch, pitch.timestamp || performance.now());
+  state.phrase = phrase;
+  if (state.music.phraseActive !== phrase.phraseActive) {
+    state.music.phraseActive = phrase.phraseActive;
+    audioGraph?.postControl({ phraseActive: phrase.phraseActive });
+  }
+  if (state.tonalSelection !== "western:auto" || !state.stablePitch) return;
+  const change = westernHarmony.update(state.stablePitch, pitch.timestamp || performance.now());
+  if (!change) return;
+  state.music.keyRoot = change.keyRoot;
+  state.music.mode = change.mode;
+  state.music.keyName = change.chordName.split(" ")[0];
+  state.music.chordName = change.chordName;
+  state.music.chordNotes = change.chordNotes;
+  state.music.chordRevision = change.revision;
+  state.music.keyConfidence = change.confidence;
+  state.capabilities.harmony = "ready";
+  audioGraph?.postControl({ harmonyChange: change });
+}
+
+async function startExperienceOnce() {
+  if (destroyed) return false;
+  state.lifecycle = "STARTING_MEDIA";
   els.startOverlay.hidden = true;
   // Baslangic ekrani (z-index 30) kapanmadan panel/kayit kontrolleri
   // tiklanamaz durumdaydi; artik yalnizca basladiktan sonra gorunurler.
   document.body.classList.add("started");
   if (DEMO_MODE) {
-    demoSource = createDemoHandSource(CAM_WIDTH, CAM_HEIGHT);
+    demoSource = createDemoHandSource(sceneWidth, sceneHeight);
   } else {
-    tryStartCamera(); // kasitli olarak await edilmiyor - renderLoop hemen baslar
+    tryStartCamera(); // Kamera ve ses birbirini engellemeden başlar.
   }
+  // Görsel sahne mikrofon izni veya AudioWorklet yüklenmesini beklemez.
+  // İzin penceresi açık kalsa bile kamera/HUD hemen çalışmaya devam eder.
+  renderLoop();
   audioGraph = new AudioGraph(state);
-  audioGraph.start({ lowLatency: config.performance !== "quality" }).then(() => {
+  const audioReady = await audioGraph.start({ lowLatency: config.performance !== "quality", inputProfile: config.input_profile }).then(() => {
     // Worklet yeni olustu; kullanicinin baslangictan once yaptigi tum
     // secimleri (tonalite, ses seviyesi, tempo, monitor) ona aktar.
     audioGraph.postControl({
@@ -719,8 +1002,78 @@ function startExperience() {
       makamDegrees: state.music.makamDegrees,
       chordRevision: state.music.chordRevision,
     });
+    return audioGraph.available;
   });
-  renderLoop();
+  const cameraReady = DEMO_MODE || state.capabilities.camera === "ready";
+  state.lifecycle = cameraReady && audioReady ? "READY" : "PARTIAL_READY";
+  return true;
+}
+
+async function destroyExperience() {
+  if (destroyed) return;
+  destroyed = true;
+  state.lifecycle = "STOPPING";
+  if (recorder?.recording) await recorder.stop();
+  camera?.destroy();
+  audioGraph?.stop();
+  if (renderFrameId) cancelAnimationFrame(renderFrameId);
+  renderLoopStarted = false;
+  state.lifecycle = "DESTROYED";
+}
+
+const introDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let introSkipped = false;
+
+function revealStartPanel() {
+  if (!els.startPanel || els.startPanel.classList.contains("intro-ready")) return;
+  els.introSequence?.classList.add("is-leaving");
+  els.startPanel.classList.remove("intro-pending");
+  els.startPanel.classList.add("intro-ready");
+  els.startPanel.setAttribute("aria-hidden", "false");
+  els.startButton.disabled = false;
+  state.lifecycle = "AWAITING_USER";
+  setTimeout(() => { if (els.introSequence) els.introSequence.hidden = true; }, 760);
+}
+
+async function typeIntro(text, speed) {
+  if (!els.introText) return;
+  els.introText.textContent = "";
+  for (const char of text) {
+    if (introSkipped) return;
+    els.introText.textContent += char;
+    await introDelay(speed);
+  }
+}
+
+async function eraseIntro(speed) {
+  if (!els.introText) return;
+  while (els.introText.textContent.length) {
+    if (introSkipped) return;
+    els.introText.textContent = els.introText.textContent.slice(0, -1);
+    await introDelay(speed);
+  }
+}
+
+async function runIntroSequence() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    revealStartPanel();
+    return;
+  }
+  await introDelay(80);
+  await typeIntro("Selam,", 58);
+  if (els.introAnnouncer && !introSkipped) els.introAnnouncer.textContent = "Selam,";
+  await introDelay(500);
+  await eraseIntro(34);
+  await introDelay(50);
+  await typeIntro("kafamın içine", 58);
+  if (els.introAnnouncer && !introSkipped) els.introAnnouncer.textContent = "kafamın içine";
+  await introDelay(500);
+  await eraseIntro(34);
+  await introDelay(50);
+  await typeIntro("hoş geldiniz :)", 58);
+  if (els.introAnnouncer && !introSkipped) els.introAnnouncer.textContent = "hoş geldiniz :)";
+  await introDelay(520);
+  revealStartPanel();
 }
 
 function bootstrap() {
@@ -731,6 +1084,7 @@ function bootstrap() {
   populateGenreSelect();
   renderInstrumentGrid();
   wireOptionsPanel();
+  setPanelOpen(false);
   updateOptionsPanel();
   if (els.optVolume) els.optVolume.value = String(Math.round(state.musicGain * 100));
   setMusicGain(state.musicGain);
@@ -752,6 +1106,14 @@ function bootstrap() {
   els.startButton.addEventListener("click", () => {
     startExperience();
   });
+  els.startOverlay.addEventListener("click", (event) => {
+    if (els.startPanel.classList.contains("intro-pending")) {
+      event.preventDefault();
+      event.stopPropagation();
+      introSkipped = true;
+      revealStartPanel();
+    }
+  });
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
   });
@@ -762,6 +1124,65 @@ function bootstrap() {
   if (DEMO_MODE) {
     els.startButton.textContent = "Demo modunu başlat";
   }
+  els.cameraRestart?.addEventListener("click", () => tryStartCamera());
+  els.cameraSwitch?.addEventListener("click", async () => {
+    if (camera?.devices?.length > 1) {
+      const index = Math.max(0, camera.devices.findIndex((device) => device.deviceId === config.camera_device_id));
+      config.camera_device_id = camera.devices[(index + 1) % camera.devices.length].deviceId;
+    } else {
+      config.camera_device_id = "";
+      config.camera_facing_mode = config.camera_facing_mode === "environment" ? "user" : "environment";
+    }
+    persistConfig();
+    handTracker?.reset?.();
+    await tryStartCamera();
+  });
+  if (els.optCameraMirror) {
+    els.optCameraMirror.value = config.camera_mirror || "auto";
+    els.optCameraMirror.addEventListener("change", () => {
+      config.camera_mirror = els.optCameraMirror.value;
+      activeMirror = shouldMirror(camera?.settings, config.camera_mirror);
+      handTracker?.reset?.();
+      persistConfig();
+    });
+  }
+  if (els.optCameraPerformance) {
+    els.optCameraPerformance.value = config.camera_performance || "auto";
+    els.optCameraPerformance.addEventListener("change", () => {
+      config.camera_performance = els.optCameraPerformance.value;
+      setAnalysisProfile(config.camera_performance === "auto" ? "balanced" : config.camera_performance);
+      persistConfig();
+    });
+  }
+  if (els.optCameraDiagnostics) {
+    els.optCameraDiagnostics.checked = Boolean(config.camera_diagnostics);
+    els.cameraDiagnostics.hidden = !config.camera_diagnostics;
+    els.optCameraDiagnostics.addEventListener("change", () => {
+      config.camera_diagnostics = els.optCameraDiagnostics.checked;
+      els.cameraDiagnostics.hidden = !config.camera_diagnostics;
+      persistConfig();
+    });
+  }
+  window.addEventListener("resize", resizeSceneCanvas, { passive: true });
+  window.addEventListener("orientationchange", () => { resizeSceneCanvas(); setAnalysisProfile(analysisProfile); handTracker?.reset?.(); }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      handTracker?.reset?.();
+      return;
+    }
+    lastVideoFrameAt = 0;
+    if (camera?.track?.readyState === "ended") tryStartCamera();
+  });
+  els.recordDownload?.addEventListener("click", () => {
+    if (recordResult) downloadBlob(recordResult, timestampName("harmoni", "webm"));
+  });
+  els.recordNew?.addEventListener("click", clearRecordResult);
+  els.recordDelete?.addEventListener("click", clearRecordResult);
+  els.recordResultClose?.addEventListener("click", clearRecordResult);
+
+  if (DEMO_MODE) els.startButton.querySelector("span").textContent = "DEMO PERFORMANSINI BAŞLAT";
+
+  runIntroSequence();
 }
 
 bootstrap();

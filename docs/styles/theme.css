@@ -3,17 +3,17 @@
 
 :root,
 :root[data-theme="midnight"] {
-  --bg: #101218;
-  --panel: #1c1f28;
-  --panel2: #3a404e;
-  --text: #e6e9f0;
-  --muted: #afb4c0;
-  --primary: #38bdf8;
-  --secondary: #a78bfa;
-  --accent: #facc15;
-  --danger: #f87171;
-  --success: #4ade80;
-  --warning: #fb923c;
+  --bg: #0d080a;
+  --panel: #1a1115;
+  --panel2: #38232c;
+  --text: #f5ecef;
+  --muted: #b9a4ac;
+  --primary: #d94b64;
+  --secondary: #8f2942;
+  --accent: #e7a0ae;
+  --danger: #ff5c70;
+  --success: #86b39a;
+  --warning: #d68a55;
   --theme-dark: 1;
 }
 
@@ -73,8 +73,14 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   overflow: hidden;
+}
+
+button, select, input { font: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .soft-card {

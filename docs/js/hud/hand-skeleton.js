@@ -3,6 +3,31 @@ import { HAND_CONNECTIONS } from "../camera/hand-tracker.js";
 
 const WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, RING_MCP = 13, PINKY_MCP = 17;
 const THUMB_TIP = 4, INDEX_TIP = 8, MIDDLE_TIP = 12, RING_TIP = 16, PINKY_TIP = 20;
+const displayTracks = new Map();
+
+export function interpolateLandmark(previous, target) {
+  const distance = Math.hypot(target[0] - previous[0], target[1] - previous[1]);
+  // Keep the overlay visually planted while the hand is still. This is only
+  // presentation smoothing; gesture/audio calculations continue to use the
+  // tracker data and therefore remain responsive.
+  if (distance <= 4) return [...previous];
+  const alpha = distance < 14 ? 0.12 : distance > 70 ? 0.68 : Math.min(0.54, 0.24 + distance / 230);
+  return [previous[0] + (target[0] - previous[0]) * alpha, previous[1] + (target[1] - previous[1]) * alpha];
+}
+
+function displayHand(source, now) {
+  const previous = displayTracks.get(source.label);
+  const landmarks = previous
+    ? source.landmarks.map((point, index) => interpolateLandmark(previous.landmarks[index], point))
+    : source.landmarks.map((point) => [...point]);
+  const palmIndices = [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP];
+  const palmCenter = [
+    palmIndices.reduce((sum, index) => sum + landmarks[index][0], 0) / palmIndices.length,
+    palmIndices.reduce((sum, index) => sum + landmarks[index][1], 0) / palmIndices.length,
+  ];
+  displayTracks.set(source.label, { landmarks, lastSeen: now });
+  return { ...source, landmarks, palmCenter };
+}
 
 function gestureLabel(gesture) {
   const gestures = {
@@ -27,11 +52,17 @@ function roundedRect(ctx, x, y, w, h, r) {
 }
 
 export function drawHandSkeletons(ctx, hands, theme) {
+  const now = performance.now();
+  const renderedHands = hands.map((hand) => displayHand(hand, now));
+  const visibleLabels = new Set(hands.map((hand) => hand.label));
+  for (const [label, track] of displayTracks) {
+    if (!visibleLabels.has(label) && now - track.lastSeen > 220) displayTracks.delete(label);
+  }
   ctx.save();
   ctx.globalAlpha = 0.85;
   ctx.lineWidth = 1.5;
 
-  for (const hand of hands) {
+  for (const hand of renderedHands) {
     const color = hand.label === "RIGHT" ? theme.primary : theme.secondary;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -87,14 +118,14 @@ export function drawHandSkeletons(ctx, hands, theme) {
   }
   ctx.restore();
 
-  if (hands.length >= 2 && hands.slice(0, 2).every((h) => h.gesture === "OPEN_HAND")) {
+  if (renderedHands.length >= 2 && renderedHands.slice(0, 2).every((h) => h.gesture === "OPEN_HAND")) {
     ctx.save();
     ctx.globalAlpha = 0.3;
     ctx.strokeStyle = theme.accent;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(hands[0].palmCenter[0], hands[0].palmCenter[1]);
-    ctx.lineTo(hands[1].palmCenter[0], hands[1].palmCenter[1]);
+    ctx.moveTo(renderedHands[0].palmCenter[0], renderedHands[0].palmCenter[1]);
+    ctx.lineTo(renderedHands[1].palmCenter[0], renderedHands[1].palmCenter[1]);
     ctx.stroke();
     ctx.restore();
   }

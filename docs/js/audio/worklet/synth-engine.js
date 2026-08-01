@@ -52,8 +52,7 @@ export class SynthEngine {
   }
 
   setLayers(layers) {
-    const resolved = new Set(layers);
-    this.activeLayers = resolved.size ? resolved : new Set(["PIANO"]);
+    this.activeLayers = new Set(layers);
   }
 
   toggleLayer(name) {
@@ -66,7 +65,7 @@ export class SynthEngine {
       layers.add(name);
       active = true;
     }
-    this.activeLayers = layers.size ? layers : new Set(["PIANO"]);
+    this.activeLayers = layers;
     return active;
   }
 
@@ -182,7 +181,9 @@ export class SynthEngine {
     const chord = music.chordNotes;
     if (!chord || !chord.length) return;
     if (layers.has("PIANO")) {
-      const activeSteps = phraseActive ? [0, 2, 4, 6] : [0, 1, 2, 4, 5, 6];
+      const sparse = this.density < 0.34;
+      const dense = this.density > 0.54;
+      const activeSteps = phraseActive ? [0, 4] : sparse ? [0, 4] : dense ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 4, 5, 6];
       if (activeSteps.includes(step)) {
         const pattern = [0, 1, 2, 1, 0, 2, 1, 2];
         const note = chord[pattern[step] % chord.length];
@@ -222,7 +223,7 @@ export class SynthEngine {
       const velocity = phraseActive ? 0.17 : 0.23;
       this.trigger(note, "guitar", velocity, beatSeconds * 0.7 * articulationScale, -0.2);
     }
-    if (layers.has("KEMAN") && chordChanged && (step === 2 || step === 6) && !phraseActive) {
+    if (layers.has("KEMAN") && (step === 2 || step === 6) && !phraseActive) {
       this.trigger(chord[chord.length - 1] + 12, "keman", 0.17, beatSeconds * 3.0, 0.35);
     }
     if (layers.has("DAVUL")) {

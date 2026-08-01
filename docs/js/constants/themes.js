@@ -2,11 +2,11 @@
 export const THEMES = [
   {
     key: "midnight",
-    name: "Midnight",
-    bg: "#101218", panel: "#1c1f28", panel2: "#3a404e",
-    text: "#e6e9f0", muted: "#afb4c0",
-    primary: "#38bdf8", secondary: "#a78bfa", accent: "#facc15",
-    danger: "#f87171", success: "#4ade80", warning: "#fb923c",
+    name: "Bordo",
+    bg: "#0d080a", panel: "#1a1115", panel2: "#38232c",
+    text: "#f5ecef", muted: "#b9a4ac",
+    primary: "#d94b64", secondary: "#8f2942", accent: "#e7a0ae",
+    danger: "#ff5c70", success: "#86b39a", warning: "#d68a55",
     dark: true,
   },
   {

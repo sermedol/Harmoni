@@ -123,3 +123,33 @@
 - `fast`, `balanced`, `quality` performans profilleri eklendi.
 - `9` ve `0` ile canlı piyano seviyesi kontrolü eklendi.
 - Uygulama ve dosya adı yalnızca Harmoni olarak güncellendi.
+
+## 2026.08.01 — Web üretim sağlamlaştırma
+
+- Gerçek davranış denetimi (`docs/AUDIT.md`).
+- Idempotent başlatma ve güvenli lifecycle cleanup.
+- Ayrı MonitorBus/RecordBus; monitör kapalıyken kayıtta işlenmiş vokal.
+- Fast/stable pitch telemetrisi, PhraseDetector ve `western:auto` Beta armoni girdisi.
+- Density örüntü etkisi, pending harmony ölçü sınırı ve gizli piyano fallback’inin kaldırılması.
+- Gesture majority/edge-trigger düzeltmeleri.
+- MediaPipe timeout, GPU→CPU fallback ve ayrı inference canvas.
+- Kayıt önizleme/indirme/silme akışı.
+- Node birim testleri ve Chromium masaüstü/mobil CI smoke testleri.
+
+### Kamera deneyimi
+
+- 1080p'den cihaz varsayılanına kademeli kamera başlangıcı ve gerçek track ayarları.
+- Kamera seçimi, ön/arka geçiş, otomatik aynalama, yeniden başlatma ve cihaz değişimi takibi.
+- Ana görüntü ile MediaPipe için ortak, esnetmeyen `cover` koordinat dönüşümü.
+- 1.5× sınırlı yüksek DPI sahne ve bağımsız, uyarlanabilir analiz çözünürlüğü.
+- Uyarlanabilir landmark smoothing, kısa kayıp toleransı ve el geçmişi temizliği.
+- Düşük ışık/kadraj uyarıları, kamera durumları, tanılama ve gizlilik açıklaması.
+- El analizi dengeli profilde 15 FPS yerine kamera kare hızına yakın çalışıyor; parmak açıklığı elin yönünden bağımsız eklem geometrisiyle sınıflandırılıyor.
+- Teknik kamera kontrolleri menüden kaldırıldı; otomatik kamera yönetimi arka planda korunuyor.
+- El iskeletindeki mikro titreşim, eklem bazlı hareket uyarlamalı filtreyle bastırıldı; hızlı hareket tepkisi korundu.
+- Kamera her açılışta sistem varsayılanını kullanıyor; görüntüdeki vignette ve üst karartma kaldırılarak doğal, filtresiz görüntü sağlandı.
+- Sağ/sol el kimliği önceki bilek konumuna kilitlendi; 30 FPS sensör sonuçları 60 FPS sahnede interpolasyonla çizilerek basamaklı iskelet sıçramaları giderildi.
+- Kamera üstündeki CSS grid/gradient katmanları ve açılış blur'u tamamen kaldırıldı; 4:3 kaynak artık kırpılmadan gösteriliyor.
+- Dikey sahne viewport oranında üretiliyor, mobil HUD sade ve büyük metinli alt konsol kullanıyor; kenar kırpılması ve metin taşmaları giderildi.
+- Kamera/HUD mikrofon izni beklemeden render edilmeye başlıyor; mobil çizim 30 FPS ve 1× DPR ile sınırlandı.
+- İki el arası yoğunluk kontrolü sabit 1280 px yerine el boyuna normalize edildi; dikey mobilde jest aralığı korunuyor.

@@ -1,81 +1,110 @@
-// CANVAS TABANLI HUD KATMANI
-//
-// Neden gerekli: paneller HTML/CSS ile ciziliyordu, ancak kayit
-// canvas.captureStream() ile alindigi icin videoya YALNIZCA kamera goruntusu
-// giriyordu (DOM katmani canvas'a dahil degildir). Bu modul, harmoni.py'deki
-// HUDRenderer gibi, bilgi panellerini dogrudan sahne canvas'ina cizer -
-// boylece hem ekranda hem de kayitta gorunurler.
-//
-// Etkilesimli kontroller (secenekler paneli, butonlar) DOM'da kalir; onlarin
-// kayda girmemesi zaten istenen davranistir (bir DAW'in mikser penceresinin
-// kayda girmemesi gibi).
+// Harmoni performance HUD. Everything here is drawn onto the scene canvas so
+// recordings contain the same instrument display the performer sees.
 
-function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
+const FONT = '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
+const MONO = '"Cascadia Mono", "SFMono-Regular", monospace';
 
-function card(ctx, x, y, w, h, theme, { accent = null, alpha = 0.82 } = {}) {
+function text(ctx, value, x, y, size, color, weight = 500, align = "left", family = FONT) {
   ctx.save();
-  ctx.globalAlpha = alpha;
-  roundRect(ctx, x, y, w, h, 14);
-  ctx.fillStyle = theme.panel;
-  ctx.fill();
-  ctx.globalAlpha = alpha * 0.75;
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = theme.panel2;
-  ctx.stroke();
-  if (accent) {
-    // Ust kenarda ince aksan seridi.
-    ctx.globalAlpha = 1;
-    roundRect(ctx, x, y, w, 3, 2);
-    ctx.fillStyle = accent;
-    ctx.fill();
-  }
+  ctx.font = `${weight} ${size}px ${family}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = "alphabetic";
+  ctx.shadowColor = "rgba(0,0,0,.88)";
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
+  ctx.fillText(String(value), x, y);
   ctx.restore();
 }
 
-function label(ctx, text, x, y, size, color, weight = "400") {
-  ctx.font = `${weight} ${size}px "Segoe UI", system-ui, sans-serif`;
-  ctx.fillStyle = color;
-  ctx.textBaseline = "alphabetic";
-  ctx.fillText(text, x, y);
+function fitText(ctx, value, maxWidth, size, weight = 500, family = FONT) {
+  ctx.font = `${weight} ${size}px ${family}`;
+  let output = String(value);
+  if (ctx.measureText(output).width <= maxWidth) return output;
+  while (output.length > 3 && ctx.measureText(`${output}…`).width > maxWidth) output = output.slice(0, -1);
+  return `${output}…`;
 }
 
-function measure(ctx, text, size, weight = "400") {
-  ctx.font = `${weight} ${size}px "Segoe UI", system-ui, sans-serif`;
-  return ctx.measureText(text).width;
+function line(ctx, x1, y1, x2, y2, color, width = 1, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.restore();
 }
 
-function pill(ctx, x, y, text, bg, fg, size = 12) {
-  const padX = 10;
-  const w = measure(ctx, text, size, "600") + padX * 2;
-  const h = size + 10;
-  roundRect(ctx, x, y, w, h, h / 2);
-  ctx.fillStyle = bg;
-  ctx.fill();
-  label(ctx, text, x + padX, y + h - 7, size, fg, "600");
-  return w;
+function corner(ctx, x, y, sx, sy, color, length = 15) {
+  line(ctx, x, y, x + sx * length, y, color, 1.4, 0.8);
+  line(ctx, x, y, x, y + sy * length, color, 1.4, 0.8);
 }
 
-/**
- * Sahne canvas'ina tum bilgi panellerini cizer.
- * @param {CanvasRenderingContext2D} ctx
- * @param {object} v - gorunum verisi (bkz. main.js buildHudView)
- * @param {object} theme
- * @param {number} W @param {number} H - tasarim cozunurlugu (1280x720)
- */
+function glass(ctx, x, y, w, h, theme, alpha = 0.74) {
+  ctx.save();
+  const gradient = ctx.createLinearGradient(x, y, x, y + h);
+  gradient.addColorStop(0, `${theme.panel}f2`);
+  gradient.addColorStop(1, `${theme.bg}e8`);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 0.56;
+  ctx.strokeStyle = theme.panel2;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.restore();
+}
+
+function drawBeat(ctx, x, y, bpm, theme, spacing = 17) {
+  const duration = 60000 / Math.max(1, bpm);
+  const phase = (performance.now() % duration) / duration;
+  const active = Math.floor(performance.now() / duration) % 4;
+  for (let i = 0; i < 4; i++) {
+    const r = i === active ? 3.3 + (1 - phase) * 2.4 : 2.2;
+    ctx.beginPath();
+    ctx.arc(x + i * spacing, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = i === active ? theme.primary : theme.panel2;
+    ctx.fill();
+  }
+  return active;
+}
+
+function drawWave(ctx, waveform, x, y, w, h, color) {
+  line(ctx, x, y + h / 2, x + w, y + h / 2, color, 0.7, 0.2);
+  if (!waveform || waveform.length < 2) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 7;
+  ctx.lineWidth = 1.35;
+  for (let i = 0; i < waveform.length; i++) {
+    const px = x + (i / (waveform.length - 1)) * w;
+    const py = y + h / 2 - Math.max(-1, Math.min(1, waveform[i])) * h * 0.42;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function metric(ctx, label, value, x, y, theme, width) {
+  text(ctx, label, x, y, 9, theme.muted, 750, "left", MONO);
+  text(ctx, fitText(ctx, value, width, 15, 700, MONO), x, y + 24, 15, theme.text, 700, "left", MONO);
+}
+
 export function drawCanvasHud(ctx, v, theme, W, H) {
   ctx.save();
-  ctx.textBaseline = "alphabetic";
+  const now = performance.now();
+  const portrait = H > W;
+  const safe = portrait ? 16 : 22;
+  const accent = v.tonalSystem === "makam" ? theme.accent : theme.primary;
 
-  const accent = v.tonalSystem === "makam" ? theme.accent : theme.secondary;
+  corner(ctx, safe, safe, 1, 1, accent, 28);
+  corner(ctx, W - safe, safe, -1, 1, accent, 28);
+  corner(ctx, safe, H - safe, 1, -1, accent, 28);
+  corner(ctx, W - safe, H - safe, -1, -1, accent, 28);
 
   // ---- Sol ust: marka + secili tur ----
   const brandW = 208;
@@ -83,82 +112,92 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   label(ctx, "HARMONİ", 34, 42, 19, theme.text, "700");
   label(ctx, v.genreLabel || "Serbest mod", 34, 62, 11.5, theme.muted);
 
-  // ---- Ust orta: su an calan eslik ----
-  const cw = 430;
-  const cx = W / 2 - cw / 2;
-  card(ctx, cx, 18, cw, 92, theme, { accent, alpha: 0.86 });
-  label(ctx, "ŞU ANKİ EŞLİK", cx + 20, 40, 10.5, theme.muted, "600");
-  label(ctx, (v.chordName || "--").slice(0, 22), cx + 20, 74, 30, theme.text, "700");
-  label(ctx, `${Math.round(v.bpm)} BPM`, cx + 20, 96, 12, theme.muted);
-  pill(ctx, cx + cw - 96, 74, v.tonalBadge, accent, theme.bg, 11);
+  // Central musical readout: typography and rails instead of another card.
+  const centerY = portrait ? 152 : 48;
+  text(ctx, "ŞU ANKİ EŞLİK", W / 2, portrait ? 132 : 28, 9, theme.muted, 750, "center", MONO);
+  text(ctx, fitText(ctx, v.chordName || "—", 390, 33, 760), W / 2, centerY + 16, 33, theme.text, 760, "center");
+  text(ctx, fitText(ctx, `${v.tonalBadge || "BATI"}  ·  ${v.genreLabel || "SERBEST"}`, 360, 10, 750, MONO), W / 2, centerY + 37, 10, accent, 750, "center", MONO);
+  const musicRailY = portrait ? 193 : 89;
+  const musicRailHalf = Math.min(215, W / 2 - safe - 20);
+  line(ctx, W / 2 - musicRailHalf, musicRailY, W / 2 + musicRailHalf, musicRailY, theme.panel2, 1, 0.72);
+  const scanX = W / 2 - musicRailHalf + ((now / 7) % (musicRailHalf * 2));
+  line(ctx, scanX - 35, musicRailY, scanX, musicRailY, accent, 2, 0.75);
 
-  // ---- Sag ust: soylenen nota ----
-  const nw = 150;
-  const nx = W - nw - 20;
-  card(ctx, nx, 18, nw, 92, theme, { accent: theme.primary, alpha: 0.86 });
-  label(ctx, "SESİN", nx + 18, 40, 10.5, theme.muted, "600");
-  label(ctx, v.noteName || "--", nx + 18, 76, 32, theme.primary, "700");
-  const detail = v.voiced ? `${v.frequency.toFixed(1)} Hz` : "sessiz";
-  label(ctx, detail, nx + 18, 98, 11, theme.muted);
+  // Right tempo rail — large enough to glance at, compact enough not to cover video.
+  text(ctx, "TEMPO", W - 34, 31, portrait ? 11 : 9, theme.muted, 750, "right", MONO);
+  text(ctx, Math.round(v.bpm), W - 34, portrait ? 68 : 62, portrait ? 35 : 29, theme.text, 760, "right", MONO);
+  text(ctx, "BPM", W - 34, portrait ? 88 : 78, portrait ? 11 : 9, accent, 750, "right", MONO);
+  drawBeat(ctx, W - 91, 92, v.bpm, theme, 19);
 
-  // ---- Sol alt: durum + jest ----
-  const sy = H - 96;
-  card(ctx, 20, sy, 250, 74, theme, { alpha: 0.78 });
-  ctx.beginPath();
-  ctx.arc(38, sy + 24, 5.5, 0, Math.PI * 2);
-  ctx.fillStyle = v.ready ? theme.success : theme.warning;
-  ctx.fill();
-  label(ctx, v.statusLabel, 52, sy + 28, 11.5, theme.text, "600");
-  label(ctx, (v.gesture || "").slice(0, 30), 34, sy + 48, 11, theme.muted);
-  label(ctx, (v.gestureDetail || "").slice(0, 32), 34, sy + 64, 10.5, theme.muted);
-
-  // ---- Alt orta: calan enstrumanlar ----
-  const names = v.instruments;
-  const text = names.length ? names.join("  ·  ") : "Sessiz";
-  const tw = Math.min(W - 620, measure(ctx, text, 12) + 40);
-  const ix = W / 2 - tw / 2;
-  const iy = H - 74;
-  card(ctx, ix, iy, tw, 52, theme, { alpha: 0.8 });
-  label(ctx, `ORKESTRA — ${names.length} KATMAN`, ix + 18, iy + 19, 9.5, theme.muted, "600");
-  // Tasarsa kirp.
-  let shown = text;
-  while (shown.length > 8 && measure(ctx, shown, 12) > tw - 36) {
-    shown = shown.slice(0, -4) + "…";
+  // Gesture reticle only appears when a meaningful gesture exists.
+  if (v.gesture && v.gesture !== "NONE") {
+    const pulse = 0.5 + Math.sin(now / 260) * 0.16;
+    ctx.save(); ctx.globalAlpha = pulse;
+    corner(ctx, W / 2 - 58, H * 0.49 - 26, 1, 1, accent, 12);
+    corner(ctx, W / 2 + 58, H * 0.49 - 26, -1, 1, accent, 12);
+    text(ctx, fitText(ctx, v.gestureDetail || v.gesture, 150, 9, 650), W / 2, H * 0.49 + 34, 9, theme.text, 650, "center", MONO);
+    ctx.restore();
   }
-  label(ctx, shown, ix + 18, iy + 39, 12, theme.text);
 
-  // ---- Sag alt: dalga formu (yatay, kayda da girsin diye canvas'ta) ----
-  const ww = 200;
-  const wx = W - ww - 20;
-  const wy = H - 96;
-  card(ctx, wx, wy, ww, 74, theme, { alpha: 0.78 });
-  label(ctx, "CANLI DALGA", wx + 16, wy + 18, 9.5, theme.muted, "600");
-  const wf = v.waveform;
-  if (wf && wf.length > 1) {
-    const midY = wy + 46;
-    ctx.beginPath();
-    ctx.strokeStyle = theme.primary;
-    ctx.lineWidth = 1.6;
-    for (let i = 0; i < wf.length; i++) {
-      const px = wx + 16 + (i / (wf.length - 1)) * (ww - 32);
-      const py = midY - Math.max(-1, Math.min(1, wf[i])) * 20;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+  // One unified performance console.
+  const deckX = safe;
+  const deckH = portrait ? 154 : 112;
+  const deckY = H - deckH - safe;
+  const deckW = W - safe * 2;
+  glass(ctx, deckX, deckY, deckW, deckH, theme, 0.83);
+  line(ctx, deckX, deckY, deckX + deckW, deckY, accent, 1.5, 0.9);
+
+  if (portrait) {
+    text(ctx, "CANLI GİRİŞ", deckX + 16, deckY + 24, 11, accent, 780, "left", MONO);
+    const portraitNote = v.voiced ? v.noteName : "—";
+    text(ctx, portraitNote, deckX + 16, deckY + 72, 42, theme.text, 720, "left", MONO);
+    text(ctx, v.voiced ? `${v.frequency.toFixed(1)} Hz` : "SES BEKLENİYOR", deckX + 18, deckY + 98, 12, theme.muted, 650, "left", MONO);
+    text(ctx, "VURUŞ", deckX + 178, deckY + 24, 11, theme.muted, 750, "left", MONO);
+    text(ctx, `${Math.round(v.bpm)} BPM`, deckX + 178, deckY + 62, 24, theme.text, 720, "left", MONO);
+    drawBeat(ctx, deckX + 184, deckY + 88, v.bpm, theme, 22);
+    const portraitWaveX = deckX + 350;
+    text(ctx, "CANLI SES İZİ", portraitWaveX, deckY + 24, 11, theme.muted, 750, "left", MONO);
+    drawWave(ctx, v.waveform, portraitWaveX, deckY + 38, deckW - 368, 56, accent);
+    const portraitNames = v.instruments || [];
+    text(ctx, `ORKESTRA / ${portraitNames.length} KATMAN`, deckX + 178, deckY + 119, 10, theme.muted, 750, "left", MONO);
+    text(ctx, fitText(ctx, portraitNames.length ? portraitNames.join(" · ") : "Eşlik için ses bekleniyor", deckW - 210, 12, 600), deckX + 178, deckY + 140, 12, theme.text, 600);
+    if (v.recording) {
+      ctx.fillStyle = theme.danger; ctx.beginPath(); ctx.arc(W / 2 - 37, 220, 4, 0, Math.PI * 2); ctx.fill();
+      text(ctx, `REC ${v.recordTime}`, W / 2 - 26, 224, 11, theme.text, 700, "left", MONO);
     }
-    ctx.stroke();
+    ctx.restore();
+    return;
   }
 
-  // ---- Kayit gostergesi (kayitta da gorunur) ----
+  text(ctx, "CANLI GİRİŞ", deckX + 14, deckY + 19, 9, accent, 780, "left", MONO);
+  const note = v.voiced ? v.noteName : "—";
+  text(ctx, note, deckX + 14, deckY + 55, 31, theme.text, 720, "left", MONO);
+  text(ctx, v.voiced ? `${v.frequency.toFixed(1)} Hz` : "SES BEKLENİYOR", deckX + 15, deckY + 77, 10, theme.muted, 650, "left", MONO);
+  const confidence = Math.max(0, Math.min(1, v.pitchConfidence || 0));
+  line(ctx, deckX + 15, deckY + 93, deckX + 133, deckY + 93, theme.panel2, 3, 0.75);
+  line(ctx, deckX + 15, deckY + 93, deckX + 15 + 118 * confidence, deckY + 93, accent, 3, 0.95);
+
+  const metricX = deckX + 164;
+  metric(ctx, "FREKANS", v.voiced ? `${v.frequency.toFixed(1)} Hz` : "—", metricX, deckY + 26, theme, 92);
+  metric(ctx, "SAPMA", v.voiced ? `${v.pitchCents >= 0 ? "+" : ""}${v.pitchCents.toFixed(0)} ct` : "—", metricX + 105, deckY + 26, theme, 76);
+  metric(ctx, "NETLİK", v.voiced ? `%${Math.round(confidence * 100)}` : "—", metricX + 194, deckY + 26, theme, 62);
+  metric(ctx, "VURUŞ", `${Math.round(v.bpm)} BPM`, metricX + 271, deckY + 26, theme, 82);
+  drawBeat(ctx, metricX + 276, deckY + 76, v.bpm, theme, 18);
+
+  const waveX = metricX + 370;
+  const waveW = Math.max(120, deckX + deckW - waveX - 18);
+  text(ctx, "CANLI SES İZİ", waveX, deckY + 19, 9, theme.muted, 750, "left", MONO);
+  drawWave(ctx, v.waveform, waveX, deckY + 29, waveW, 48, accent);
+
+  const names = v.instruments || [];
+  const orchestra = names.length ? names.join("  ·  ") : "Eşlik için ses bekleniyor";
+  text(ctx, `ORKESTRA / ${names.length} KATMAN`, metricX, deckY + 90, 9, theme.muted, 750, "left", MONO);
+  text(ctx, fitText(ctx, orchestra, Math.max(120, waveX - metricX - 18), 10, 600), metricX, deckY + 105, 10, theme.text, 600);
+
   if (v.recording) {
-    const rt = `● REC  ${v.recordTime}`;
-    const rw = measure(ctx, rt, 13, "700") + 24;
-    const rx = W / 2 - rw / 2;
-    roundRect(ctx, rx, 120, rw, 28, 14);
     ctx.fillStyle = theme.danger;
-    ctx.globalAlpha = 0.92;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    label(ctx, rt, rx + 12, 139, 13, "#ffffff", "700");
+    ctx.beginPath(); ctx.arc(W / 2 - 37, 116, 4, 0, Math.PI * 2); ctx.fill();
+    text(ctx, `REC ${v.recordTime}`, W / 2 - 26, 120, 10, theme.text, 700, "left", MONO);
   }
 
   ctx.restore();
