@@ -4,7 +4,7 @@
 // `available=false` olur ve process() daima bos dizi dondurur - uygulamanin
 // geri kalani (jest kontrolu, HUD) sessizce "eller yok" durumuna duser.
 import { clamp } from "../constants/music-utils.js";
-import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-01";
+import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-02";
 
 const VISION_VERSION = "0.10.14";
 const VISION_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VERSION}`;
@@ -70,26 +70,71 @@ export function fingerStates(points) {
   ];
 }
 
-// MediaPipe'ın durağan elde ürettiği birkaç piksellik gürültüyü emer; gerçek
-// hareket büyüdükçe katsayı hızla yükselir ve el ağırlaşmış hissettirmez.
-export function smoothLandmarkPoint(previous, current) {
-  const movement = Math.hypot(current[0] - previous[0], current[1] - previous[1]);
-  // A stationary MediaPipe landmark commonly wanders by 3-6 screen pixels.
-  // Treat that as sensor noise instead of continuously chasing it. Once the
-  // hand genuinely moves, open the filter progressively so controls stay live.
-  // Olu bolge titremeyi emmek icin gerekli; hiz ise asagidaki alpha ile
-  // veriliyor. Bu esigi 0.0022'ye kadar dusurmek gercek sensor gurultusunu
-  // gecirip eli yeniden titretiyordu (bkz. ilgili test).
-  if (movement < 0.0032) return [...previous];
-  const alpha = movement < 0.012
-    ? 0.26
-    : clamp(0.28 + movement * 15, 0.46, 0.9);
-  const zAlpha = clamp(alpha * 0.72, 0.1, 0.62);
-  return [
-    previous[0] + (current[0] - previous[0]) * alpha,
-    previous[1] + (current[1] - previous[1]) * alpha,
-    previous[2] + (current[2] - previous[2]) * zAlpha,
-  ];
+// --- 1€ filtresi (Casiez, Roussel & Vogt, CHI 2012) ----------------------
+//
+// Neden esik tabanli olu bolge birakildi: "hareket < esik ise noktayi
+// dondur" yaklasimi titremeyi cozmez, bicimini degistirir. Gurultu esigin
+// etrafinda gezindiginde nokta "tamamen donuk" ile "bir anda alpha kadar
+// sicra" arasinda gidip gelir (stick-slip) ve bu gozle duz gurultuden daha
+// rahatsiz edicidir. Esigi yukseltmek eli agirlastirir, dusurmek gurultuyu
+// geri getirir; arada calisan bir deger yoktur.
+//
+// 1€ filtresinde esik yoktur. Kesim frekansi ele ait hiza gore surekli
+// uyarlanir: el dururken kesim dusuktur (agresif yumusatma -> titreme yok),
+// el hizlandikca kesim yukselir (hafif yumusatma -> gecikme yok). Filtre
+// ayrica kare suresini (dt) hesaba katar, yani fps degisince davranis
+// degismez.
+function lowPassAlpha(cutoffHz, dtSeconds) {
+  const tau = 1 / (2 * Math.PI * cutoffHz);
+  return 1 / (1 + tau / dtSeconds);
+}
+
+// Varsayilanlar olcumle secildi (30fps, +-0.004 normalize gurultu ile):
+//   eski esik filtresi : std 0.89px, maxSapma 1.88px, karelerin %80'i donuk,
+//                        en buyuk sicrama ortalamanin 6.6 kati  <- titreme
+//   minCutoff .3 beta 8: std 0.62px, maxSapma 1.64px, donuk kare yok,
+//                        en buyuk sicrama ortalamanin 2.7 kati, %90'a 4 kare
+export function createOneEuroFilter({ minCutoff = 0.3, beta = 8, derivativeCutoff = 1 } = {}) {
+  let value = null;
+  let derivative = 0;
+  return {
+    reset() { value = null; derivative = 0; },
+    filter(raw, dtSeconds) {
+      const dt = dtSeconds > 0 ? dtSeconds : 1 / 60;
+      if (value === null) { value = raw; return raw; }
+      const rawDerivative = (raw - value) / dt;
+      derivative += lowPassAlpha(derivativeCutoff, dt) * (rawDerivative - derivative);
+      const cutoff = minCutoff + beta * Math.abs(derivative);
+      value += lowPassAlpha(cutoff, dt) * (raw - value);
+      return value;
+    },
+  };
+}
+
+// El basina 21 landmark x 3 eksen filtre bankasi.
+export function createLandmarkSmoother(options = {}) {
+  const banks = new Map();
+  const makeBank = () => Array.from({ length: 21 }, () => [
+    createOneEuroFilter(options),
+    createOneEuroFilter(options),
+    // Derinlik ekseni daha gurultuludur; biraz daha agir yumusatilir.
+    createOneEuroFilter({ ...options, minCutoff: (options.minCutoff ?? 0.3) * 0.6 }),
+  ]);
+  return {
+    smooth(label, points, dtSeconds) {
+      let bank = banks.get(label);
+      if (!bank) { bank = makeBank(); banks.set(label, bank); }
+      return points.map((point, index) => [
+        bank[index][0].filter(point[0], dtSeconds),
+        bank[index][1].filter(point[1], dtSeconds),
+        bank[index][2].filter(point[2] ?? 0, dtSeconds),
+      ]);
+    },
+    reset(label) {
+      if (label) banks.delete(label);
+      else banks.clear();
+    },
+  };
 }
 
 export function associateHandLabels(wrists, rawLabels, previousHands, maxDistance = 0.24) {
@@ -126,10 +171,12 @@ export class HandTracker {
     this.frameIndex = 0;
     this.lastPackets = [];
     this.lastDetectionTime = -Infinity;
-    this.smoothLandmarks = new Map(); // label -> Float32Array(21*3)
+    this.smoothLandmarks = new Map(); // label -> son filtrelenmis landmark dizisi
+    this.smoother = createLandmarkSmoother();
     this.gestureHistory = createGestureHistory();
     this.detectorTimes = [];
     this.lastProcessAt = 0;
+    this.lastFrameAt = 0;
     this.missingSince = new Map();
     this.processing = false;
   }
@@ -172,10 +219,12 @@ export class HandTracker {
   reset(label) {
     if (label) {
       this.smoothLandmarks.delete(label);
+      this.smoother.reset(label);
       this.missingSince.delete(label);
       this.gestureHistory.reset(label);
     } else {
       this.smoothLandmarks.clear();
+      this.smoother.reset();
       this.missingSince.clear();
       this.gestureHistory.reset();
       this.lastPackets = [];
@@ -202,6 +251,9 @@ export class HandTracker {
     finally { this.processing = false; }
     const packets = [];
     const seen = new Set();
+    // 1€ filtresi kare suresine bagli calisir; ilk karede makul bir varsayim.
+    const dtSeconds = this.lastFrameAt ? Math.min(0.25, Math.max(0.004, (timestampMs - this.lastFrameAt) / 1000)) : 1 / 30;
+    this.lastFrameAt = timestampMs;
 
     if (result.landmarks && result.landmarks.length > 0) {
       const rawLabels = result.landmarks.map((_, index) => (result.handednesses?.[index]?.[0]?.categoryName || "Right").toUpperCase());
@@ -214,13 +266,7 @@ export class HandTracker {
         const confidence = handedness?.score ?? 0;
 
         const rawNormalized = lm.map((p) => [p.x, p.y, p.z]);
-        const previous = this.smoothLandmarks.get(label);
-        let normalized;
-        if (previous) {
-          normalized = rawNormalized.map((point, i) => smoothLandmarkPoint(previous[i], point));
-        } else {
-          normalized = rawNormalized;
-        }
+        const normalized = this.smoother.smooth(label, rawNormalized, dtSeconds);
         this.smoothLandmarks.set(label, normalized);
 
         const points = normalized.map(([x, y]) => [

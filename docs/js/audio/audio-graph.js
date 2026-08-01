@@ -34,7 +34,7 @@ export class AudioGraph {
         sampleRate: 48000,
         latencyHint: lowLatency ? "interactive" : "playback",
       });
-      await this.ctx.audioWorklet.addModule("js/audio/worklet/harmoni-processor.js?v=20260802-01");
+      await this.ctx.audioWorklet.addModule("js/audio/worklet/harmoni-processor.js?v=20260802-02");
       this.workletNode = new AudioWorkletNode(this.ctx, "harmoni-processor", {
         numberOfInputs: 1,
         numberOfOutputs: 2,

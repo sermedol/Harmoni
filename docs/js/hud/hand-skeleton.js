@@ -5,13 +5,19 @@ const WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, RING_MCP = 13, PINKY_MCP = 17;
 const THUMB_TIP = 4, INDEX_TIP = 8, MIDDLE_TIP = 12, RING_TIP = 16, PINKY_TIP = 20;
 const displayTracks = new Map();
 
+// Bu katman YALNIZCA gorsel ara deger uretir: tespit her karede calismayabilir
+// (processEvery) ama sahne 60fps cizilir, arada iskelet basamakli gorunmesin
+// diye hedefe yumusak yaklasilir.
+//
+// Burada da esik tabanli olu bolge (distance <= 4 -> dondur) kaldirildi.
+// Gurultu bastirma artik tek bir yerde, hand-tracker.js icindeki 1€
+// filtresinde yapiliyor. Iki katmanda birden esik uygulamak hem gecikmeyi
+// ikiye katliyor hem de iki ayri stick-slip kaynagi yaratiyordu.
 export function interpolateLandmark(previous, target) {
   const distance = Math.hypot(target[0] - previous[0], target[1] - previous[1]);
-  // Keep the overlay visually planted while the hand is still. This is only
-  // presentation smoothing; gesture/audio calculations continue to use the
-  // tracker data and therefore remain responsive.
-  if (distance <= 4) return [...previous];
-  const alpha = distance < 14 ? 0.12 : distance > 70 ? 0.68 : Math.min(0.54, 0.24 + distance / 230);
+  // Surekli fonksiyon: mesafe buyudukce yaklasma orani puruzsuz artar,
+  // hicbir noktada sicrama ya da donma yok.
+  const alpha = Math.min(0.85, 0.22 + distance / 120);
   return [previous[0] + (target[0] - previous[0]) * alpha, previous[1] + (target[1] - previous[1]) * alpha];
 }
 

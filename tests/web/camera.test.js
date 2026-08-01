@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitContain, fitCover, sceneSizeForViewport, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
-import { associateHandLabels, fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
+import { associateHandLabels, createOneEuroFilter, fingerStates } from "../../docs/js/camera/hand-tracker.js";
 import { classifyGesture } from "../../docs/js/camera/gesture-classifier.js";
 import { interpolateLandmark } from "../../docs/js/hud/hand-skeleton.js";
 
@@ -134,12 +134,71 @@ test("portrait scene keeps the viewport aspect outside the old clamp band", () =
   }
 });
 
-test("landmark filter suppresses micro jitter but follows deliberate motion", () => {
-  const previous = [.5, .5, 0];
-  const jitter = smoothLandmarkPoint(previous, [.502, .499, .002]);
-  assert.deepEqual(jitter, previous);
-  const motion = smoothLandmarkPoint(previous, [.56, .5, 0]);
-  assert.ok(motion[0] > .535);
+// Tekrarlanabilir sozde-rastgele gurultu (test determinist olmali).
+function noiseSource(seed = 12345) {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff - .5;
+  };
+}
+
+const FRAME = 1 / 30;
+
+test("landmark filter suppresses jitter without ever freezing (no stick-slip)", () => {
+  // Eski esik tabanli filtre karelerin %80'inde noktayi TAMAMEN donduruyor,
+  // sonra ortalamanin 6.6 kati bir sicrama yapiyordu. Gozle gorulen titreme
+  // buydu. Esigi buyutmek eli agirlastiriyor, kucultmek gurultuyu geri
+  // getiriyordu; arada calisan bir deger yok. 1€ filtresinde esik yoktur.
+  const noise = noiseSource();
+  const filter = createOneEuroFilter();
+  const amplitude = .004;
+  const samples = [];
+  for (let i = 0; i < 300; i++) {
+    const value = filter.filter(.5 + noise() * 2 * amplitude, FRAME);
+    if (i > 60) samples.push(value);
+  }
+
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+  const std = Math.sqrt(samples.reduce((a, b) => a + (b - mean) ** 2, 0) / samples.length);
+  const inputStd = amplitude / Math.sqrt(3);
+
+  // Gurultu belirgin sekilde bastirilmali.
+  assert.ok(std < inputStd * .35, `kalan titreme cok yuksek: ${std}`);
+  // 1280px genislikte yaklasik 2 pikselden az sapma.
+  assert.ok(Math.max(...samples.map((v) => Math.abs(v - .5))) < .0016);
+
+  // Hicbir kare tamamen donmamali: donma + sicrama dongusu titremenin
+  // kaynagiydi. Girdi degisiyorsa cikti da degismeli.
+  const steps = samples.slice(1).map((v, i) => Math.abs(v - samples[i]));
+  assert.equal(steps.filter((s) => s === 0).length, 0, "filtre kareleri donduruyor");
+  // Adimlar birbirine yakin olmali (sicrama yok).
+  const meanStep = steps.reduce((a, b) => a + b, 0) / steps.length;
+  assert.ok(Math.max(...steps) < meanStep * 5, "adimlar arasinda sicrama var");
+});
+
+test("landmark filter follows deliberate motion within a few frames", () => {
+  const filter = createOneEuroFilter();
+  for (let i = 0; i < 40; i++) filter.filter(.5, FRAME);
+  const progress = [];
+  for (let i = 0; i < 12; i++) progress.push((filter.filter(.58, FRAME) - .5) / .08);
+  const reached90 = progress.findIndex((v) => v >= .9);
+  assert.ok(reached90 >= 0 && reached90 < 6, `%90'a ulasma cok yavas: ${reached90 + 1} kare`);
+});
+
+test("landmark filter behaves consistently in time across frame rates", () => {
+  // dt hesaba katilmazsa 60fps'te filtre iki kat agir davranir.
+  const settle = (dt, frames) => {
+    const filter = createOneEuroFilter();
+    for (let i = 0; i < Math.round(1.5 / dt); i++) filter.filter(.5, dt);
+    let value = .5;
+    for (let i = 0; i < frames; i++) value = filter.filter(.58, dt);
+    return (value - .5) / .08;
+  };
+  // Ayni SURE (~200ms): 30fps'te 6 kare, 60fps'te 12 kare.
+  const at30 = settle(1 / 30, 6);
+  const at60 = settle(1 / 60, 12);
+  assert.ok(Math.abs(at30 - at60) < .12, `fps'e gore davranis degisiyor: ${at30} vs ${at60}`);
 });
 
 test("hand identity remains stable when MediaPipe flips handedness", () => {
@@ -151,8 +210,21 @@ test("hand identity remains stable when MediaPipe flips handedness", () => {
   assert.deepEqual(labels, ["RIGHT", "LEFT"]);
 });
 
-test("render interpolation removes step jumps without freezing fast motion", () => {
-  assert.deepEqual(interpolateLandmark([100, 100], [101, 99]), [100, 100]);
-  const fast = interpolateLandmark([100, 100], [200, 100]);
-  assert.equal(fast[0], 168);
+test("render interpolation is continuous and never freezes", () => {
+  // Gorsel katman artik esik kullanmiyor: gurultu bastirma tek yerde,
+  // hand-tracker'daki 1€ filtresinde yapiliyor. Iki katmanda birden esik
+  // uygulamak gecikmeyi ikiye katliyor ve ikinci bir stick-slip kaynagi
+  // yaratiyordu.
+  const tiny = interpolateLandmark([100, 100], [101, 99]);
+  assert.notDeepEqual(tiny, [100, 100], "kucuk hareket donduruluyor");
+  assert.ok(tiny[0] > 100 && tiny[0] < 101);
+
+  // Mesafe buyudukce yaklasma orani monoton artmali, sicrama olmamali.
+  const ratio = (distance) => (interpolateLandmark([100, 100], [100 + distance, 100])[0] - 100) / distance;
+  const ratios = [2, 8, 20, 50, 120].map(ratio);
+  for (let i = 1; i < ratios.length; i++) assert.ok(ratios[i] >= ratios[i - 1], "oran monoton degil");
+  assert.ok(ratios.at(-1) <= .85, "hizli harekette asiri kesme");
+
+  // Hizli hareket tek karede buyuk olcude kapanmali.
+  assert.ok(interpolateLandmark([100, 100], [200, 100])[0] > 160);
 });
