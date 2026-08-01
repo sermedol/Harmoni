@@ -8,6 +8,15 @@ import { defaultPitchSnapshot, defaultMusicSnapshot } from "./harmony/pitch-type
 export function createAppState() {
   const listeners = new Set();
   const state = {
+    lifecycle: "BOOT",
+    capabilities: {
+      camera: "idle",
+      microphone: "idle",
+      handModel: "idle",
+      pitch: "idle",
+      harmony: "manual",
+      recorder: "idle",
+    },
     pitch: defaultPitchSnapshot(),
     music: defaultMusicSnapshot(),
     vocalLevel: 0,
@@ -32,6 +41,8 @@ export function createAppState() {
     musicGain: 0.30,
     brightness: 1.0,
     articulation: 0.5,
+    density: 0.38,
+    gestureGain: 1.0,
 
     subscribe(fn) {
       listeners.add(fn);

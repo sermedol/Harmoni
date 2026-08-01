@@ -18,6 +18,7 @@ export function classifyGesture(fingers, pinch) {
 // >=3/5 ayni jest degilse onceki (fallback) jest korunur (titremeyi onler).
 export function createGestureHistory(maxLen = 5) {
   const histories = new Map();
+  const stable = new Map();
   return {
     stabilize(label, gesture) {
       let history = histories.get(label);
@@ -37,7 +38,12 @@ export function createGestureHistory(maxLen = 5) {
           bestCount = count;
         }
       }
-      return bestCount >= 3 ? best : gesture;
+      if (bestCount >= 3) stable.set(label, best);
+      return stable.get(label) || gesture;
+    },
+    reset(label) {
+      if (label) { histories.delete(label); stable.delete(label); }
+      else { histories.clear(); stable.clear(); }
     },
   };
 }

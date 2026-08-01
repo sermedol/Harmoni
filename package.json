@@ -1,0 +1,13 @@
+{
+  "name": "harmoni-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:web": "node --test tests/web/*.test.js",
+    "check:web": "node --check docs/js/main.js && node --check docs/js/audio/worklet/harmoni-processor.js",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.54.1"
+  }
+}

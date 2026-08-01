@@ -9,8 +9,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260801-23" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260801-23" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260801-25" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260801-25" />
 </head>
 <body>
   <div id="app" class="app">
@@ -91,6 +91,15 @@
           <div class="option-divider"></div>
 
           <div class="panel-section-title">Oturum</div>
+          <div class="capability-status" id="capability-status" role="status" aria-live="polite">Bileşenler bekleniyor</div>
+          <label class="option-row">
+            <span>Ses giriş profili</span>
+            <select id="opt-input-profile">
+              <option value="speaker">Hoparlör modu</option>
+              <option value="music">Kulaklık / müzik modu</option>
+            </select>
+          </label>
+          <div class="option-hint">Kulaklık modu perde ve vokal kalitesini korur; hoparlör modu geri beslemeyi azaltır.</div>
           <button class="option-button record" id="opt-record">● Kaydı başlat</button>
           <label class="option-row">
             <span>Tema</span>
@@ -176,19 +185,37 @@
       </div>
 
       <div id="start-overlay" class="start-overlay">
-        <div class="intro-sequence" id="intro-sequence" aria-live="polite">
+        <div class="intro-sequence" id="intro-sequence" aria-hidden="true">
           <span id="intro-text"></span><i class="type-cursor" aria-hidden="true"></i>
         </div>
+        <div id="intro-announcer" class="sr-only" aria-live="polite"></div>
         <div class="start-panel soft-card intro-pending" id="start-panel" aria-hidden="true">
-          <div class="start-guide-title"><span>HARMONİ</span><b>Hızlı Başlangıç</b></div>
+          <div class="start-guide-title"><span>HARMONİ</span><b>Sesinle eşlik oluştur.</b></div>
+          <p class="start-lead">Ellerinle orkestrayı yönet.</p>
           <div class="start-guide-list">
             <div><i>◉</i><span><b>Kamera</b><small>El hareketlerini ve jestleri takip eder.</small></span></div>
-            <div><i>◌</i><span><b>Mikrofon</b><small>Söylediğin notayı ve melodiyi algılar.</small></span></div>
-            <div><i>✦</i><span><b>Orkestra</b><small>Sesine uygun eşliği gerçek zamanlı üretir.</small></span></div>
+            <div><i>◌</i><span><b>Mikrofon</b><small>Söylediğin notaları analiz eder.</small></span></div>
+            <div><i>✦</i><span><b>Orkestra</b><small>Seçtiğin dizi veya makam üzerinde eşlik üretir.</small></span></div>
+            <div><i>⌁</i><span><b>Kulaklık</b><small>Daha iyi ses ve düşük geri besleme için önerilir.</small></span></div>
           </div>
+          <label class="start-profile"><span>Ses modu</span><select id="start-input-profile"><option value="speaker">Hoparlör</option><option value="music">Kulaklık / müzik</option></select></label>
           <button id="start-button" class="start-launch" aria-label="Harmoni'yi başlat" disabled>
-            <span>Feza işlevli oyuncaklarını sunar :)</span><i>→</i>
+            <span>PERFORMANSI BAŞLAT</span><i>→</i>
           </button>
+          <small class="start-signature">Feza işlevli oyuncaklarını sunar :)</small>
+        </div>
+      </div>
+
+      <div id="record-result-overlay" class="guide-overlay" hidden>
+        <div class="record-result guide-panel" role="dialog" aria-modal="true" aria-labelledby="record-result-title">
+          <div class="guide-title"><h2 id="record-result-title">Performans kaydı</h2><button id="record-result-close" aria-label="Kayıt sonucunu kapat">×</button></div>
+          <video id="record-preview" controls playsinline></video>
+          <div class="record-meta" id="record-meta">Kayıt hazır</div>
+          <div class="record-actions">
+            <button class="option-button record" id="record-download">Video indir</button>
+            <button class="option-button" id="record-new">Yeni performans</button>
+            <button class="option-button" id="record-delete">Kaydı sil</button>
+          </div>
         </div>
       </div>
     </div>
@@ -196,6 +223,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260801-23"></script>
+  <script type="module" src="js/main.js?v=20260801-25"></script>
 </body>
 </html>

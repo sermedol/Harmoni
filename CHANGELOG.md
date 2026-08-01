@@ -123,3 +123,16 @@
 - `fast`, `balanced`, `quality` performans profilleri eklendi.
 - `9` ve `0` ile canlı piyano seviyesi kontrolü eklendi.
 - Uygulama ve dosya adı yalnızca Harmoni olarak güncellendi.
+
+## 2026.08.01 — Web üretim sağlamlaştırma
+
+- Gerçek davranış denetimi (`docs/AUDIT.md`).
+- Idempotent başlatma ve güvenli lifecycle cleanup.
+- Ayrı MonitorBus/RecordBus; monitör kapalıyken kayıtta işlenmiş vokal.
+- Fast/stable pitch telemetrisi, PhraseDetector ve `western:auto` Beta armoni girdisi.
+- Density örüntü etkisi, pending harmony ölçü sınırı ve gizli piyano fallback’inin kaldırılması.
+- Gesture majority/edge-trigger düzeltmeleri.
+- MediaPipe timeout, GPU→CPU fallback ve ayrı inference canvas.
+- Kayıt önizleme/indirme/silme akışı.
+- Node birim testleri ve Chromium masaüstü/mobil CI smoke testleri.
+

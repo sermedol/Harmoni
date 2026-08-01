@@ -77,6 +77,9 @@ export class Camera {
         audio: false,
       });
       const track = this.stream.getVideoTracks()[0];
+      track.addEventListener("ended", () => { this.status = "OFFLINE"; });
+      track.addEventListener("mute", () => { this.status = "INTERRUPTED"; });
+      track.addEventListener("unmute", () => { this.status = "ONLINE"; });
       try {
         const capabilities = track?.getCapabilities?.() || {};
         const advanced = {};

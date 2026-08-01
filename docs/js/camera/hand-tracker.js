@@ -56,17 +56,23 @@ export class HandTracker {
 
   async init() {
     try {
-      const { HandLandmarker, FilesetResolver } = await import(
-        /* webpackIgnore: true */ `${VISION_BASE}/vision_bundle.mjs`
-      );
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("El modeli yükleme zaman aşımı")), 15000));
+      const modulePromise = import(/* webpackIgnore: true */ `${VISION_BASE}/vision_bundle.mjs`);
+      const { HandLandmarker, FilesetResolver } = await Promise.race([modulePromise, timeout]);
       const fileset = await FilesetResolver.forVisionTasks(`${VISION_BASE}/wasm`);
-      this.landmarker = await HandLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
-        runningMode: "VIDEO",
-        numHands: this.maxHands,
-        minHandDetectionConfidence: 0.58,
-        minTrackingConfidence: 0.5,
-      });
+      let lastError;
+      for (const delegate of ["GPU", "CPU"]) {
+        try {
+          this.landmarker = await HandLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate },
+            runningMode: "VIDEO", numHands: this.maxHands,
+            minHandDetectionConfidence: 0.58, minTrackingConfidence: 0.5,
+          });
+          this.delegate = delegate;
+          break;
+        } catch (error) { lastError = error; }
+      }
+      if (!this.landmarker) throw lastError || new Error("El modeli başlatılamadı");
       this.available = true;
     } catch (err) {
       console.warn("HandTracker: MediaPipe yuklenemedi, el takibi devre disi.", err);
@@ -130,6 +136,9 @@ export class HandTracker {
       this.lastDetectionTime = performance.now();
     } else if (performance.now() - this.lastDetectionTime < 180) {
       packets.push(...this.lastPackets);
+    } else {
+      this.gestureHistory.reset();
+      this.smoothLandmarks.clear();
     }
 
     this.lastPackets = packets;

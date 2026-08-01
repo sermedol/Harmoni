@@ -3,9 +3,9 @@
 // guzellestirme zinciri) baglandi. Gercek HarmonyEngine akor/makam verisi
 // (Milestone 6, su an icin sabit bir yerlesik C majör akoru ve Hicaz makami
 // varsayilan olarak kullanilir) henuz yok.
-import { SynthEngine } from "./synth-engine.js";
-import { VocalDSP } from "./vocal-dsp.js";
-import { PitchTracker } from "./pitch-tracker.js";
+import { SynthEngine } from "./synth-engine.js?v=20260801-25";
+import { VocalDSP } from "./vocal-dsp.js?v=20260801-25";
+import { PitchTracker } from "./pitch-tracker.js?v=20260801-25";
 
 const DEFAULT_MUSIC = {
   bpm: 96,
@@ -24,6 +24,7 @@ class HarmoniProcessor extends AudioWorkletProcessor {
     this.pitchTracker = new PitchTracker(sampleRate);
     this.pitchSnapshot = null;
     this.music = { ...DEFAULT_MUSIC };
+    this.pendingHarmony = null;
     // harmoni.py DEFAULT_CONFIG.monitor_enabled - kapatildiginda mikrofon
     // hoparlore YANSITILMAZ (vocal=0, DSP hic calismaz). Kulaklik takmadan
     // (mikrofon hoparloru duyacak sekilde) kullanildiginda bu kapatilmazsa
@@ -52,6 +53,7 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         if ("monitorEnabled" in payload) this.monitorEnabled = payload.monitorEnabled;
         if ("fxAmount" in payload) this.vocalDsp.setFxAmount(payload.fxAmount);
         if ("vocalEnabled" in payload) this.vocalDsp.enabled = payload.vocalEnabled;
+        if ("harmonyChange" in payload) this.pendingHarmony = payload.harmonyChange;
         for (const key of ["bpm", "phraseActive", "chordRevision", "tonalSystem", "chordNotes", "makamDegrees"]) {
           if (key in payload) this.music[key] = payload[key];
         }
@@ -63,8 +65,9 @@ class HarmoniProcessor extends AudioWorkletProcessor {
 
   process(inputs, outputs) {
     try {
-      const output = outputs[0];
-      const frames = output[0].length;
+      const monitorOutput = outputs[0];
+      const recordOutput = outputs[1];
+      const frames = monitorOutput[0].length;
       const input = inputs[0];
       const hasInput = input && input.length > 0 && input[0].length > 0;
       const mono = new Float64Array(frames);
@@ -85,25 +88,33 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         this.waveformPos = (this.waveformPos + 1) % this.waveformSize;
       }
 
-      let vocalL, vocalR;
-      if (this.monitorEnabled) {
-        [vocalL, vocalR] = this.vocalDsp.process(mono);
-      } else {
-        vocalL = null;
-        vocalR = null;
-      }
+      // RecordBus vokali her zaman işler; monitorEnabled yalnızca fiziksel
+      // hoparlör/kulaklık yolundaki vokal duyumunu kontrol eder.
+      const [vocalL, vocalR] = this.vocalDsp.process(mono);
 
+      if (this.pendingHarmony && this.synth.samplesToStep <= 0 && this.synth.stepIndex % 8 === (this.pendingHarmony.applyAtStep || 0)) {
+        this.music.chordNotes = [...this.pendingHarmony.chordNotes];
+        this.music.chordRevision = this.pendingHarmony.revision;
+        this.pendingHarmony = null;
+      }
       const [musicL, musicR] = this.synth.render(frames, this.music, this.vocalLevel);
 
-      for (let ch = 0; ch < output.length; ch++) {
-        const outCh = output[ch];
+      let recordPeak = 0;
+      let recordSumSq = 0;
+      for (let ch = 0; ch < monitorOutput.length; ch++) {
+        const monitorCh = monitorOutput[ch];
+        const recordCh = recordOutput?.[ch];
         const synthCh = ch === 0 ? musicL : musicR;
         const vocalCh = ch === 0 ? vocalL : vocalR;
         for (let i = 0; i < frames; i++) {
-          const vocal = vocalCh ? vocalCh[i] * 0.96 : 0;
-          const mix = vocal + synthCh[i];
-          const limited = Math.tanh(mix * 1.06) / Math.tanh(1.06);
-          outCh[i] = Math.max(-0.96, Math.min(0.96, limited));
+          const vocal = vocalCh[i] * 0.96;
+          const monitorMix = synthCh[i] + (this.monitorEnabled ? vocal : 0);
+          const recordMix = synthCh[i] + vocal;
+          monitorCh[i] = Math.max(-0.96, Math.min(0.96, Math.tanh(monitorMix * 1.06) / Math.tanh(1.06)));
+          const recordLimited = Math.max(-0.96, Math.min(0.96, Math.tanh(recordMix * 1.06) / Math.tanh(1.06)));
+          if (recordCh) recordCh[i] = recordLimited;
+          recordPeak = Math.max(recordPeak, Math.abs(recordMix));
+          recordSumSq += recordMix * recordMix;
         }
       }
 
@@ -121,7 +132,10 @@ class HarmoniProcessor extends AudioWorkletProcessor {
           hasInput,
           vocalLevel: this.vocalLevel,
           pitch: this.pitchSnapshot,
+          stablePitch: this.pitchTracker.stablePitch,
           synthMaxAbs: maxAbs,
+          recordPeak,
+          recordRms: Math.sqrt(recordSumSq / Math.max(1, frames * 2)),
           activeVoiceCount: this.synth.voices.length,
           waveform,
           controlEcho: { activeLayers: [...this.synth.activeLayers], music: this.music },

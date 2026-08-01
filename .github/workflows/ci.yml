@@ -6,6 +6,34 @@ on:
   pull_request:
 
 jobs:
+  web-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install web test dependencies
+        run: npm install
+      - name: Static JavaScript validation
+        run: npm run check:web
+      - name: Web unit tests
+        run: npm run test:web
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Desktop and mobile browser smoke
+        run: npm run test:browser
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harmoni-playwright-report
+          path: playwright-report
+          if-no-files-found: ignore
+
   self-test:
     strategy:
       fail-fast: false

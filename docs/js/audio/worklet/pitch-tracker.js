@@ -49,7 +49,7 @@ function modeLowestTieBreak(arr) {
 
 function defaultSnapshot(rms, confidence, timestamp) {
   return {
-    frequency: 0, midiNote: -1, noteName: "--", confidence, rms, cents: 0, voiced: false, timestamp,
+    frequency: 0, midiFloat: -1, midiNote: -1, pitchClass: -1, noteName: "--", confidence, rms, cents: 0, voiced: false, timestamp,
   };
 }
 
@@ -61,6 +61,8 @@ export class PitchTracker {
     this.frequencyHistory = [];
     this.noteHistory = [];
     this.lastSnapshot = defaultSnapshot(0, 0, 0);
+    this.stablePitch = null;
+    this.stableCandidate = null;
   }
 
   // mono: Float64Array (bu blogun ham mikrofon orneklegi).
@@ -76,7 +78,31 @@ export class PitchTracker {
     if (this.writeCount < 1024) return this.lastSnapshot;
     this.writeCount = 0;
     this.lastSnapshot = this.detect(this.buffer.subarray(this.buffer.length - 3072), now);
+    this._updateStable(this.lastSnapshot, now);
     return this.lastSnapshot;
+  }
+
+  _updateStable(pitch, now) {
+    if (!pitch.voiced) {
+      if (this.stableCandidate && now - this.stableCandidate.lastSeen > 260) {
+        if (this.stablePitch) this.stablePitch = { ...this.stablePitch, endedAt: now };
+        this.stableCandidate = null;
+      }
+      return;
+    }
+    const pc = ((Math.round(pitch.midiFloat) % 12) + 12) % 12;
+    if (!this.stableCandidate || Math.abs(this.stableCandidate.midiFloat - pitch.midiFloat) > 0.65) {
+      this.stableCandidate = { startedAt: now, lastSeen: now, midiFloat: pitch.midiFloat };
+      return;
+    }
+    this.stableCandidate.lastSeen = now;
+    this.stableCandidate.midiFloat = this.stableCandidate.midiFloat * 0.75 + pitch.midiFloat * 0.25;
+    const durationMs = now - this.stableCandidate.startedAt;
+    if (durationMs >= 160) this.stablePitch = {
+      frequency: pitch.frequency, midiFloat: this.stableCandidate.midiFloat, pitchClass: pc,
+      noteName: pitch.noteName, confidence: pitch.confidence, durationMs,
+      startedAt: this.stableCandidate.startedAt, endedAt: null,
+    };
   }
 
   detect(samplesIn, now) {
@@ -165,7 +191,9 @@ export class PitchTracker {
 
     return {
       frequency: smoothFrequency,
+      midiFloat,
       midiNote,
+      pitchClass: ((midiNote % 12) + 12) % 12,
       noteName: midiToName(midiNote, true),
       confidence,
       rms,
