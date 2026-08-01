@@ -6,8 +6,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260801-5" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260801-5" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260801-6" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260801-6" />
 </head>
 <body>
   <div id="app" class="app">
@@ -44,8 +44,9 @@
       <div class="rec-badge" id="rec-badge" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span></div>
 
       <button class="panel-toggle" id="panel-toggle" aria-label="Menüyü aç"><span>☰</span> MENÜ</button>
+      <button class="panel-backdrop" id="panel-backdrop" aria-label="Menüyü kapat" tabindex="-1"></button>
 
-      <div class="options-panel soft-card" id="options-panel">
+      <div class="options-panel soft-card" id="options-panel" role="dialog" aria-label="Kontroller" aria-modal="true">
           <div class="panel-title">
             <span>Kontroller</span>
             <button class="panel-close" id="panel-close" aria-label="Kapat">×</button>
@@ -111,7 +112,7 @@
             <div class="sub" id="adv-version">v0.1 web | tema Midnight</div>
           </div>
           <div class="soft-card adv-music-card">
-            <div class="card-label">SU ANKI ESLIK</div>
+            <div class="card-label">ŞU ANKİ EŞLİK</div>
             <div class="music-row">
               <span class="chord-name" id="adv-chord-name">--</span>
               <span class="chord-func" id="adv-chord-func">--</span>
@@ -121,8 +122,8 @@
             <div class="tonal-badge pill" id="adv-tonal-badge">BATI</div>
           </div>
           <div class="soft-card adv-status-card">
-            <div class="status-line" id="adv-status-line">Dinliyor ve eslik ediyor</div>
-            <div class="status-sub" id="adv-status-sub">kamera 0fps  el 0fps  gecikme 0ms</div>
+            <div class="status-line" id="adv-status-line">Dinliyor ve eşlik ediyor</div>
+            <div class="status-sub" id="adv-status-sub">kamera 0fps · el 0fps · gecikme 0ms</div>
           </div>
         </div>
 
@@ -131,16 +132,16 @@
             <div class="card-label">VOKAL</div>
             <div class="vocal-note" id="adv-vocal-note">--</div>
             <div class="vocal-hz" id="adv-vocal-hz">0.0 Hz  +0.0 cent</div>
-            <div class="meter-row"><span>NOTA NETLIGI</span><div class="led-meter" id="adv-confidence-meter"></div></div>
-            <div class="meter-row"><span>SES SEVIYESI</span><div class="led-meter" id="adv-level-meter"></div></div>
+            <div class="meter-row"><span>NOTA NETLİĞİ</span><div class="led-meter" id="adv-confidence-meter"></div></div>
+            <div class="meter-row"><span>SES SEVİYESİ</span><div class="led-meter" id="adv-level-meter"></div></div>
             <div class="key-row" id="adv-key-row">-- / --</div>
             <div class="pill" id="adv-reverb-pill">Reverb %0</div>
           </div>
           <div class="adv-orchestra-card soft-card">
             <div class="card-label">ORKESTRA (12 KATMAN)</div>
-            <div class="arranger-status" id="adv-arranger-status">Otomatik duzenleme (A ile kapat)</div>
+            <div class="arranger-status" id="adv-arranger-status">Otomatik düzenleme · A ile kapat</div>
             <div class="orchestra-grid" id="adv-orchestra-grid"></div>
-            <div class="gesture-row" id="adv-gesture-row">HAREKET IZLENIYOR</div>
+            <div class="gesture-row" id="adv-gesture-row">HAREKET İZLENİYOR</div>
             <div class="meter-row"><span>PARLAKLIK</span><div class="led-meter" id="adv-brightness-meter"></div></div>
             <div class="meter-row"><span>LEGATO</span><div class="led-meter" id="adv-articulation-meter"></div></div>
           </div>
@@ -167,7 +168,7 @@
 
       <div id="guide-overlay" class="guide-overlay" hidden>
         <div class="guide-panel soft-card">
-          <h2>Harmoni Kullanım Kılavuzu</h2>
+          <div class="guide-title"><h2>Kullanım Kılavuzu</h2><button id="guide-close" aria-label="Kılavuzu kapat">×</button></div>
           <div id="guide-gestures"></div>
           <div id="guide-keys"></div>
           <div class="guide-hint">Kapatmak için <kbd>/</kbd> veya <kbd>Esc</kbd></div>
@@ -189,6 +190,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260801-3"></script>
+  <script type="module" src="js/main.js?v=20260801-6"></script>
 </body>
 </html>

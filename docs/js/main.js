@@ -75,7 +75,9 @@ const els = {
   recTime: document.getElementById("rec-time"),
   panelToggle: document.getElementById("panel-toggle"),
   panelClose: document.getElementById("panel-close"),
+  panelBackdrop: document.getElementById("panel-backdrop"),
   optionsPanel: document.getElementById("options-panel"),
+  guideClose: document.getElementById("guide-close"),
 };
 
 els.sceneCanvas.width = CAM_WIDTH;
@@ -133,6 +135,7 @@ function cycleTheme(index) {
 function toggleGuide() {
   state.showGuide = !state.showGuide;
   els.guideOverlay.hidden = !state.showGuide;
+  if (state.showGuide) setPanelOpen(false);
 }
 
 function populateTonalSelect() {
@@ -298,6 +301,8 @@ function updateRecordingBadge() {
 
 function setPanelOpen(open) {
   els.optionsPanel?.classList.toggle("open", open);
+  document.body.classList.toggle("menu-open", open);
+  els.panelBackdrop?.classList.toggle("visible", open);
   if (els.panelToggle) {
     els.panelToggle.setAttribute("aria-expanded", String(open));
     els.panelToggle.setAttribute("aria-label", open ? "Menüyü kapat" : "Menüyü aç");
@@ -320,6 +325,8 @@ function wireOptionsPanel() {
   els.optRecord?.addEventListener("click", () => toggleRecording());
   els.panelToggle?.addEventListener("click", () => setPanelOpen(!els.optionsPanel.classList.contains("open")));
   els.panelClose?.addEventListener("click", () => setPanelOpen(false));
+  els.panelBackdrop?.addEventListener("click", () => setPanelOpen(false));
+  els.guideClose?.addEventListener("click", () => toggleGuide());
   els.optVolume?.addEventListener("input", (e) => setMusicGain(Number(e.target.value) / 100));
   els.optBpm?.addEventListener("input", (e) => setBpm(Number(e.target.value)));
   els.optModeToggle?.addEventListener("click", () => {
@@ -340,22 +347,22 @@ function wireOptionsPanel() {
 
 function renderGuide() {
   const gestureLines = [
-    "Iki elde ACIK AVUC (0.55sn) -> tam orkestra",
-    "PINCH (bas parmak+isaret) -> vokal reverb/eco miktari",
-    "ACIK AVUC (tek el) -> sag: Yaylilar, sol: Pad",
-    "BARIS ISARETI (isaret+orta) -> Ritim (bateri)",
-    "YUMRUK -> ekstra katmanlari kapat (yalniz piyano)",
-    "ISARET PARMAGI -> katmanlar arasinda gecis",
+    "İki açık avuç · Tam orkestrayı etkinleştirir",
+    "Başparmak ve işaret parmağı · Reverb miktarını ayarlar",
+    "Tek açık avuç · Sağ el yaylıları, sol el pad katmanını yönetir",
+    "Barış işareti · Ritim katmanını açar veya kapatır",
+    "Yumruk · Ek katmanları kapatır ve yalnızca piyanoyu bırakır",
+    "İşaret parmağı · Enstrüman katmanları arasında geçiş yapar",
   ];
   els.guideGestures.innerHTML = `<h3>Jestler</h3><ul>${gestureLines.map((l) => `<li>${l}</li>`).join("")}</ul>`;
 
   const layerLines = Object.entries(LAYER_KEYS).map(([key, [, label]]) => `${key.toUpperCase()} ${label}`);
   const otherKeys = [
-    "Tab basit/gelismis gorunum", "T tonalite (Bati/Makam)", "D dizi rengi",
-    "A oto-duzenleme", "F tam orkestra", "X sadece piyano",
-    "R kayit", "S ekran goruntusu", "1-4 tema", "H arayuz",
-    "E vokal fx", "V monitoring", "Space tap tempo", "[ ] bpm",
-    "- + reverb", "9 0 piyano seviyesi", "M ayna", "/ kilavuz",
+    "Tab · Basit/gelişmiş görünüm", "T · Batı/makam sistemi", "D · Dizi rengi",
+    "A · Otomatik düzenleme", "F · Tam orkestra", "X · Yalnız piyano",
+    "R · Kayıt", "S · Ekran görüntüsü", "1–4 · Tema", "H · Arayüz",
+    "E · Vokal efektleri", "V · Mikrofon monitörü", "Boşluk · Tap tempo", "[ ] · Tempo",
+    "− + · Reverb", "9 0 · Piyano seviyesi", "M · Ayna", "/ · Kılavuz",
   ];
   els.guideKeys.innerHTML = `
     <h3>Enstruman katmanlari</h3>
@@ -376,8 +383,9 @@ function handleKeydown(event) {
     toggleGuide();
     return;
   }
-  if (event.key === "Escape" && state.showGuide) {
-    toggleGuide();
+  if (event.key === "Escape") {
+    if (state.showGuide) toggleGuide();
+    else if (els.optionsPanel?.classList.contains("open")) setPanelOpen(false);
     return;
   }
   if (["1", "2", "3", "4"].includes(event.key)) {

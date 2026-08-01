@@ -767,3 +767,90 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
   .option-button-row { flex-direction:column; }
   .feza-signature { max-width:70vw; white-space:normal; text-align:right; }
 }
+
+/* Son yerleşim katmanı: kontrollü taşma ve tutarlı çekmece davranışı. */
+.stage > *, .hud-advanced *, .options-panel * { min-width:0; }
+.soft-card, .option-button, .instrument-chip, .guide-panel, .music-row, .status-line, .status-sub {
+  overflow-wrap:anywhere;
+}
+.panel-backdrop {
+  position:absolute;
+  inset:0;
+  z-index:12;
+  border:0;
+  padding:0;
+  background:rgba(5,7,11,.42);
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  cursor:default;
+  backdrop-filter:blur(2px);
+  transition:opacity .22s ease,visibility .22s ease;
+}
+.panel-backdrop.visible { opacity:1; visibility:visible; pointer-events:auto; }
+.options-panel { z-index:14; overscroll-behavior:contain; }
+.panel-toggle { z-index:13; }
+.options-panel.open ~ .feza-signature { opacity:.28; }
+.panel-title { position:sticky; top:-18px; z-index:2; margin:-18px -18px 0; padding:18px 18px 12px; background:linear-gradient(180deg,var(--panel) 78%,transparent); backdrop-filter:blur(12px); }
+.panel-close, #guide-close { display:grid; place-items:center; border:0; color:var(--muted); cursor:pointer; transition:background .18s ease,color .18s ease,transform .18s ease; }
+.panel-close:hover, #guide-close:hover { color:var(--text); background:color-mix(in srgb,var(--panel2) 76%,transparent); transform:rotate(4deg); }
+.option-hint { max-width:100%; }
+.option-row select { width:100%; text-overflow:ellipsis; }
+.instrument-chip span:last-child { overflow:hidden; text-overflow:ellipsis; }
+.music-row { flex-wrap:wrap; row-gap:5px; }
+.adv-music-card .tonal-badge { position:static; margin-top:8px; }
+.guide-title { display:flex; align-items:center; justify-content:space-between; gap:16px; position:sticky; top:-28px; z-index:2; margin:-28px -28px 14px; padding:24px 28px 14px; background:linear-gradient(180deg,var(--panel) 82%,transparent); backdrop-filter:blur(12px); }
+.guide-title h2 { margin:0; font-size:20px; }
+#guide-close { flex:0 0 38px; width:38px; height:38px; border-radius:12px; background:color-mix(in srgb,var(--panel2) 70%,transparent); font-size:22px; }
+.guide-panel ul { margin:8px 0 18px; }
+.guide-panel li { line-height:1.5; }
+.start-panel, .start-overlay .start-button { max-width:calc(100vw - 24px); }
+.start-overlay .start-button span,.start-overlay .start-button b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+@media (max-width:1180px) and (min-width:821px) {
+  .hud-advanced { overflow:auto; }
+  .adv-header-row { flex-wrap:wrap; }
+  .adv-header { min-width:180px; }
+  .adv-status-card { min-width:220px; }
+  .adv-mid-row { min-height:260px; }
+}
+
+@media (max-width:820px) {
+  .panel-toggle { display:flex !important; }
+  .options-panel { transform:translateX(calc(-100% - 16px)); pointer-events:none; }
+  .options-panel.open { transform:translateX(0); pointer-events:auto; }
+  .panel-title { top:calc(-18px - env(safe-area-inset-top)); margin-top:calc(-18px - env(safe-area-inset-top)); padding-top:calc(18px + env(safe-area-inset-top)); }
+  .hud-advanced { scrollbar-width:none; }
+  .hud-advanced::-webkit-scrollbar { display:none; }
+  .adv-row { width:100%; }
+  .adv-header,.adv-music-card,.adv-status-card,.adv-vocal-card,.adv-orchestra-card,.adv-bottom-deck { width:100%; min-width:0; }
+  .adv-status-card { min-width:0; }
+  .orchestra-grid { grid-template-columns:1fr 1fr; }
+  .orchestra-cell { gap:6px; }
+  .guide-title { top:-22px; margin:-22px -18px 12px; padding:18px 18px 12px; }
+  .guide-title h2 { font-size:18px; }
+}
+
+@media (max-width:480px) {
+  .panel-toggle { font-size:10px; }
+  .panel-toggle span { font-size:16px; }
+  .options-panel { gap:10px; }
+  .panel-section-title { font-size:9px; }
+  .instrument-grid,.orchestra-grid { grid-template-columns:1fr; }
+  .instrument-chip { font-size:12px; }
+  .start-overlay .start-button { grid-template-columns:1fr 40px; padding:14px; }
+  .start-overlay .start-button b { font-size:21px; }
+  .start-overlay .start-button i { width:40px; height:40px; }
+  .start-credit { width:calc(100% - 24px); text-align:center; white-space:normal; line-height:1.4; }
+}
+
+@media (max-height:620px) and (min-width:821px) {
+  .options-panel { top:8px; bottom:8px; }
+  .option-button,.option-row select { min-height:32px; }
+  .instrument-chip { min-height:28px; padding-block:4px; }
+  .panel-section-title { margin-top:1px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; }
+}
