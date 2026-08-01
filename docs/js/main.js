@@ -12,7 +12,7 @@ import { loadConfig, saveConfig } from "./config.js?v=20260801-25";
 import { createAppState } from "./app-state.js?v=20260801-25";
 import { Camera } from "./camera/camera.js?v=20260801-26";
 import { fitCover, shouldMirror } from "./camera/camera-math.js?v=20260801-26";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260801-26";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260801-27";
 import { GestureController } from "./camera/gesture-controller.js?v=20260801-25";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-25";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-25";
@@ -671,7 +671,7 @@ let fastAnalysisCount = 0;
 function setAnalysisProfile(profile) {
   analysisProfile = profile;
   const profiles = {
-    quality: [768, 432, 1], balanced: [640, 360, 2], performance: [480, 270, 3],
+    quality: [768, 432, 1], balanced: [640, 360, 1], performance: [480, 270, 2],
   };
   const [width, height, every] = profiles[profile] || profiles.balanced;
   if (inferenceCanvas.width !== width) {

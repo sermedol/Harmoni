@@ -4,7 +4,7 @@
 // `available=false` olur ve process() daima bos dizi dondurur - uygulamanin
 // geri kalani (jest kontrolu, HUD) sessizce "eller yok" durumuna duser.
 import { clamp } from "../constants/music-utils.js";
-import { classifyGesture, createGestureHistory } from "./gesture-classifier.js";
+import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260801-27";
 
 const VISION_VERSION = "0.10.14";
 const VISION_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VERSION}`;
@@ -38,6 +38,32 @@ export const HAND_CONNECTIONS = [
 
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+function jointAngle(a, b, c) {
+  const abx = a[0] - b[0], aby = a[1] - b[1];
+  const cbx = c[0] - b[0], cby = c[1] - b[1];
+  const denominator = Math.max(1e-6, Math.hypot(abx, aby) * Math.hypot(cbx, cby));
+  return Math.acos(clamp((abx * cbx + aby * cby) / denominator, -1, 1)) * 180 / Math.PI;
+}
+
+// Ekrandaki yöne bağlı değildir; el yana veya çapraz durduğunda da çalışır.
+export function fingerStates(points) {
+  const wrist = points[WRIST];
+  const extended = (mcp, pip, tip) => {
+    const straight = jointAngle(points[mcp], points[pip], points[tip]);
+    const reach = dist(points[tip], wrist) / Math.max(1, dist(points[pip], wrist));
+    return straight > 152 && reach > 1.08;
+  };
+  const thumbStraight = jointAngle(points[1], points[THUMB_IP], points[THUMB_TIP]);
+  const thumbReach = dist(points[THUMB_TIP], points[MIDDLE_MCP]) / Math.max(1, dist(points[THUMB_IP], points[MIDDLE_MCP]));
+  return [
+    thumbStraight > 145 && thumbReach > 1.08,
+    extended(INDEX_MCP, INDEX_PIP, INDEX_TIP),
+    extended(MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP),
+    extended(RING_MCP, RING_PIP, RING_TIP),
+    extended(PINKY_MCP, PINKY_PIP, PINKY_TIP),
+  ];
 }
 
 export class HandTracker {
@@ -189,14 +215,7 @@ export class HandTracker {
       palmIndices.reduce((s, i) => s + points[i][1], 0) / palmIndices.length,
     ];
     const handSize = Math.max(20, dist(points[WRIST], points[MIDDLE_MCP]) * 1.9);
-    const nonThumb = [
-      points[INDEX_TIP][1] < points[INDEX_PIP][1],
-      points[MIDDLE_TIP][1] < points[MIDDLE_PIP][1],
-      points[RING_TIP][1] < points[RING_PIP][1],
-      points[PINKY_TIP][1] < points[PINKY_PIP][1],
-    ];
-    const thumbExtended = dist(points[THUMB_TIP], palmCenter) > dist(points[THUMB_IP], palmCenter) * 1.13;
-    const fingers = [thumbExtended, ...nonThumb];
+    const fingers = fingerStates(points);
     const pinch = dist(points[THUMB_TIP], points[INDEX_TIP]) / handSize;
     const fingertips = [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP];
     const openness = fingertips.reduce((s, i) => s + dist(points[i], palmCenter), 0) / fingertips.length / handSize;

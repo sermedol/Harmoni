@@ -6,7 +6,7 @@
 export function classifyGesture(fingers, pinch) {
   const [thumb, index, middle, ring, pinky] = fingers;
   const openCount = fingers.filter(Boolean).length;
-  if (pinch < 0.26) return "PINCH";
+  if (pinch < 0.29) return "PINCH";
   if (index && middle && !ring && !pinky) return "PEACE";
   if (index && !middle && !ring && !pinky) return "POINT";
   if (openCount >= 4) return "OPEN_HAND";

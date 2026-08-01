@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitCover, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
+import { fingerStates } from "../../docs/js/camera/hand-tracker.js";
 
 test("camera profiles degrade from 1080p to native fallback", () => {
   assert.deepEqual(CAMERA_PROFILES.slice(0, 4).map((p) => [p.width, p.height]), [[1920, 1080], [1280, 720], [960, 540], [640, 480]]);
@@ -59,4 +60,17 @@ test("camera retries lower profiles and stop closes the active track", async () 
   assert.equal(stopped, true);
   Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: originalNavigator });
+});
+
+test("finger extension is invariant when the hand rotates", () => {
+  const points = Array.from({ length: 21 }, () => [0, 0]);
+  points[0] = [0, 0];
+  points[1] = [-.4, .2]; points[3] = [-1.2, .2]; points[4] = [-2, .2];
+  for (const [mcp, pip, tip, x] of [[5, 6, 8, -.6], [9, 10, 12, -.2], [13, 14, 16, .2], [17, 18, 20, .6]]) {
+    points[mcp] = [x, .8]; points[pip] = [x, 1.8]; points[tip] = [x, 3.6];
+  }
+  assert.deepEqual(fingerStates(points), [true, true, true, true, true]);
+  const angle = Math.PI / 2;
+  const rotated = points.map(([x, y]) => [x * Math.cos(angle) - y * Math.sin(angle), x * Math.sin(angle) + y * Math.cos(angle)]);
+  assert.deepEqual(fingerStates(rotated), [true, true, true, true, true]);
 });
