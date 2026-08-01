@@ -79,6 +79,31 @@ export function smoothLandmarkPoint(previous, current) {
   ];
 }
 
+export function associateHandLabels(wrists, rawLabels, previousHands, maxDistance = 0.24) {
+  const labels = [...rawLabels];
+  const usedPrevious = new Set();
+  for (let i = 0; i < wrists.length; i++) {
+    let bestIndex = -1;
+    let bestDistance = maxDistance;
+    for (let j = 0; j < previousHands.length; j++) {
+      if (usedPrevious.has(j)) continue;
+      const previousWrist = previousHands[j]?.normalized?.[WRIST];
+      if (!previousWrist) continue;
+      const distance = Math.hypot(wrists[i][0] - previousWrist[0], wrists[i][1] - previousWrist[1]);
+      if (distance < bestDistance) { bestDistance = distance; bestIndex = j; }
+    }
+    if (bestIndex >= 0) {
+      labels[i] = previousHands[bestIndex].label;
+      usedPrevious.add(bestIndex);
+    }
+  }
+  if (labels.length === 2 && labels[0] === labels[1]) {
+    const duplicate = labels[0];
+    labels[1] = duplicate === "RIGHT" ? "LEFT" : "RIGHT";
+  }
+  return labels;
+}
+
 export class HandTracker {
   constructor({ processEvery = 2, maxHands = 2 } = {}) {
     this.available = false;
@@ -166,10 +191,12 @@ export class HandTracker {
     const seen = new Set();
 
     if (result.landmarks && result.landmarks.length > 0) {
+      const rawLabels = result.landmarks.map((_, index) => (result.handednesses?.[index]?.[0]?.categoryName || "Right").toUpperCase());
+      const stableLabels = associateHandLabels(result.landmarks.map((landmarks) => [landmarks[WRIST].x, landmarks[WRIST].y]), rawLabels, this.lastPackets);
       for (let idx = 0; idx < result.landmarks.length; idx++) {
         const lm = result.landmarks[idx];
         const handedness = result.handednesses?.[idx]?.[0];
-        const label = (handedness?.categoryName || "Right").toUpperCase();
+        const label = stableLabels[idx];
         seen.add(label);
         const confidence = handedness?.score ?? 0;
 

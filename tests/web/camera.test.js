@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitCover, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
-import { fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
+import { associateHandLabels, fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
+import { interpolateLandmark } from "../../docs/js/hud/hand-skeleton.js";
 
 test("camera profiles degrade from 1080p to native fallback", () => {
   assert.deepEqual(CAMERA_PROFILES.slice(0, 4).map((p) => [p.width, p.height]), [[1920, 1080], [1280, 720], [960, 540], [640, 480]]);
@@ -88,4 +89,19 @@ test("landmark filter suppresses micro jitter but follows deliberate motion", ()
   assert.ok(Math.abs(jitter[1] - previous[1]) < .0002);
   const motion = smoothLandmarkPoint(previous, [.56, .5, 0]);
   assert.ok(motion[0] > .535);
+});
+
+test("hand identity remains stable when MediaPipe flips handedness", () => {
+  const previous = [
+    { label: "RIGHT", normalized: [[.2, .5, 0]] },
+    { label: "LEFT", normalized: [[.8, .5, 0]] },
+  ];
+  const labels = associateHandLabels([[.21, .5], [.79, .5]], ["LEFT", "RIGHT"], previous);
+  assert.deepEqual(labels, ["RIGHT", "LEFT"]);
+});
+
+test("render interpolation removes step jumps without freezing fast motion", () => {
+  assert.deepEqual(interpolateLandmark([100, 100], [101, 99]), [100.1, 99.9]);
+  const fast = interpolateLandmark([100, 100], [200, 100]);
+  assert.equal(fast[0], 158);
 });

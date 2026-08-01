@@ -148,3 +148,4 @@
 - Teknik kamera kontrolleri menüden kaldırıldı; otomatik kamera yönetimi arka planda korunuyor.
 - El iskeletindeki mikro titreşim, eklem bazlı hareket uyarlamalı filtreyle bastırıldı; hızlı hareket tepkisi korundu.
 - Kamera her açılışta sistem varsayılanını kullanıyor; görüntüdeki vignette ve üst karartma kaldırılarak doğal, filtresiz görüntü sağlandı.
+- Sağ/sol el kimliği önceki bilek konumuna kilitlendi; 30 FPS sensör sonuçları 60 FPS sahnede interpolasyonla çizilerek basamaklı iskelet sıçramaları giderildi.
