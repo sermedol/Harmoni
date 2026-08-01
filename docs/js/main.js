@@ -15,7 +15,7 @@ import { HandTracker } from "./camera/hand-tracker.js";
 import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-9";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-10";
 import { AudioGraph } from "./audio/audio-graph.js";
 
 const CAM_WIDTH = 1280;
@@ -500,8 +500,10 @@ function buildHudView() {
     tonalBadge: state.music.tonalSystem === "makam"
       ? (state.tonalDisplayName || "MAKAM").toUpperCase()
       : "BATI",
-    noteName: state.pitch.voiced ? state.pitch.noteName : "Dinliyor…",
+    noteName: state.pitch.voiced ? state.pitch.noteName : "--",
     frequency: state.pitch.frequency || 0,
+    inputLevel: Math.min(1, Math.max(0, (state.pitch.rms || 0) / 0.08)),
+    pitchConfidence: Math.min(1, Math.max(0, state.pitch.confidence || 0)),
     voiced: !!state.pitch.voiced,
     ready: camOnline && audioOnline,
     statusLabel: camOnline && audioOnline

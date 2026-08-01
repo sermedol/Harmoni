@@ -96,12 +96,25 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   const nw = 150;
   const nx = W - nw - 20;
   card(ctx, nx, 18, nw, 92, theme, { accent: theme.primary, alpha: 0.86 });
-  label(ctx, "SESİN", nx + 18, 40, 10.5, theme.muted, "600");
-  const noteSize = v.voiced ? 32 : 15;
-  const noteY = v.voiced ? 76 : 72;
-  label(ctx, v.noteName || "--", nx + 18, noteY, noteSize, theme.primary, v.voiced ? "700" : "600");
-  const detail = v.voiced ? `${v.frequency.toFixed(1)} Hz` : "ses bekleniyor";
-  label(ctx, detail, nx + 18, 98, 11, theme.muted);
+  label(ctx, v.voiced ? "SESİN" : "MİKROFON GİRİŞİ", nx + 18, 40, 10.5, theme.muted, "600");
+  if (v.voiced) {
+    label(ctx, v.noteName || "--", nx + 18, 76, 32, theme.primary, "700");
+    label(ctx, `${v.frequency.toFixed(1)} Hz`, nx + 18, 98, 11, theme.muted);
+  } else {
+    const meterX = nx + 18;
+    const meterY = 57;
+    const meterW = nw - 36;
+    const level = Math.min(1, Math.max(0, v.inputLevel || 0));
+    roundRect(ctx, meterX, meterY, meterW, 9, 4.5);
+    ctx.fillStyle = theme.panel2;
+    ctx.fill();
+    if (level > 0.01) {
+      roundRect(ctx, meterX, meterY, Math.max(9, meterW * level), 9, 4.5);
+      ctx.fillStyle = level > 0.82 ? theme.warning : theme.primary;
+      ctx.fill();
+    }
+    label(ctx, `Giriş  %${Math.round(level * 100)}`, meterX, 89, 11, level > 0.03 ? theme.text : theme.muted, "600");
+  }
 
   // ---- Sol alt: durum + jest ----
   const sy = H - 96;
