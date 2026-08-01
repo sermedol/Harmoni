@@ -877,10 +877,10 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
   opacity:1;
   filter:blur(0);
   transform:scale(1);
-  transition:opacity .55s ease,filter .55s ease,transform .55s ease;
+  transition:opacity .68s ease,filter .68s ease,transform .68s ease;
   pointer-events:none;
 }
-.intro-sequence.is-leaving { opacity:0; filter:blur(12px); transform:scale(1.025); }
+.intro-sequence.is-leaving { opacity:0; filter:blur(8px); transform:scale(1.015); }
 .type-cursor {
   width:2px;
   height:1.05em;
@@ -901,7 +901,7 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
   filter:blur(0);
   transform:scale(1) translateY(0);
   pointer-events:auto;
-  transition:opacity .68s ease .18s,filter .68s ease .18s,transform .68s cubic-bezier(.2,.8,.2,1) .18s;
+  transition:opacity .72s ease .12s,filter .72s ease .12s,transform .72s cubic-bezier(.2,.8,.2,1) .12s;
 }
 .start-launch:disabled { cursor:default; }
 
@@ -1219,6 +1219,7 @@ kbd { border-radius:1px; background:#120a0d; border-color:rgba(231,160,174,.2); 
 
 /* 2026 Performance Instrument UI ----------------------------------------- */
 .mode-hint { display:none !important; }
+.start-overlay { pointer-events:auto; }
 .stage::before {
   opacity:.17;
   background-image:

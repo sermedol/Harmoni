@@ -385,8 +385,6 @@ function renderGuide() {
 function handleKeydown(event) {
   if (els.startPanel?.classList.contains("intro-pending") && ["Enter", " ", "Escape"].includes(event.key)) {
     event.preventDefault();
-    introSkipped = true;
-    revealStartPanel();
     return;
   }
   if (event.key === "Tab") {
@@ -707,7 +705,6 @@ function startExperience() {
   renderLoop();
 }
 
-let introSkipped = false;
 const introDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function revealStartPanel() {
@@ -717,23 +714,21 @@ function revealStartPanel() {
   els.startPanel.classList.add("intro-ready");
   els.startPanel.setAttribute("aria-hidden", "false");
   els.startButton.disabled = false;
-  setTimeout(() => { if (els.introSequence) els.introSequence.hidden = true; }, 620);
+  setTimeout(() => { if (els.introSequence) els.introSequence.hidden = true; }, 760);
 }
 
 async function typeIntro(text, speed) {
   if (!els.introText) return;
   els.introText.textContent = "";
   for (const char of text) {
-    if (introSkipped) return;
     els.introText.textContent += char;
-    await introDelay(speed + Math.random() * 24);
+    await introDelay(speed);
   }
 }
 
 async function eraseIntro(speed) {
   if (!els.introText) return;
   while (els.introText.textContent.length) {
-    if (introSkipped) return;
     els.introText.textContent = els.introText.textContent.slice(0, -1);
     await introDelay(speed);
   }
@@ -744,13 +739,17 @@ async function runIntroSequence() {
     revealStartPanel();
     return;
   }
-  await introDelay(420);
-  await typeIntro("Selam,", 88);
-  await introDelay(720);
-  await eraseIntro(52);
-  await introDelay(220);
-  await typeIntro("Kafamın içine hoş geldiniz.", 62);
-  await introDelay(920);
+  await introDelay(80);
+  await typeIntro("Selam,", 58);
+  await introDelay(500);
+  await eraseIntro(34);
+  await introDelay(50);
+  await typeIntro("kafamın içine", 58);
+  await introDelay(500);
+  await eraseIntro(34);
+  await introDelay(50);
+  await typeIntro("hoş geldiniz :)", 58);
+  await introDelay(520);
   revealStartPanel();
 }
 
@@ -778,9 +777,12 @@ function bootstrap() {
     startExperience();
   });
   els.startOverlay.addEventListener("click", (event) => {
-    if (event.target.closest("#start-panel") || els.startPanel.classList.contains("intro-ready")) return;
-    introSkipped = true;
-    revealStartPanel();
+    // Karşılama sırasında alttaki kontrollerin yanlışlıkla tetiklenmesini
+    // engelle; sekans kullanıcı etkileşimiyle atlanmaz.
+    if (els.startPanel.classList.contains("intro-pending")) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   });
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
