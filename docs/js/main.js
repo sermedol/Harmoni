@@ -488,7 +488,7 @@ function buildHudView() {
     tonalBadge: state.music.tonalSystem === "makam"
       ? (state.tonalDisplayName || "MAKAM").toUpperCase()
       : "BATI",
-    noteName: state.pitch.voiced ? state.pitch.noteName : "--",
+    noteName: state.pitch.voiced ? state.pitch.noteName : "Dinliyor…",
     frequency: state.pitch.frequency || 0,
     voiced: !!state.pitch.voiced,
     ready: camOnline && audioOnline,

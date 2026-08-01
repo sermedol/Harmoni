@@ -114,7 +114,7 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
 
   // ---- Alt orta: calan enstrumanlar ----
   const names = v.instruments;
-  const text = names.length ? names.join("  ·  ") : "Sessiz";
+  const text = names.length ? names.join("  ·  ") : "Eşlik için ses bekleniyor";
   const tw = Math.min(W - 620, measure(ctx, text, 12) + 40);
   const ix = W / 2 - tw / 2;
   const iy = H - 74;

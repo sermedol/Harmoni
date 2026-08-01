@@ -590,7 +590,7 @@ body:not(.started) .rec-badge {
    donusur; dokunma hedefleri buyutulur.
    ========================================================================= */
 
-@media (max-width: 820px), (pointer: coarse) {
+@media (max-width: 820px) {
   .stage {
     aspect-ratio: auto;
     width: 100vw;
@@ -728,4 +728,4 @@ kbd { display:inline-grid; place-items:center; min-width:22px; height:22px; padd
 .guide-panel h3 { color:var(--accent); font-size:12px; text-transform:uppercase; letter-spacing:.1em; }
 .guide-panel li { margin:7px 0; color:var(--muted); font-size:12px; }
 @media (max-width:1100px) { .quick-guide,.options-panel{width:240px}.hud-advanced{padding-left:260px;padding-right:260px}.guide-heading p,.guide-step small{display:none}.rec-badge{right:260px} }
-@media (max-width:820px),(pointer:coarse) { .stage::after{background:linear-gradient(180deg,rgba(7,9,14,.36),transparent 32%,rgba(7,9,14,.35))}.quick-guide{display:none}.options-panel{width:min(88vw,340px);top:0;bottom:0;left:0;border-radius:0 24px 24px 0;padding:20px}.hud-advanced{padding:68px 10px 12px}.rec-badge{right:14px;bottom:14px}.feza-signature{right:12px;bottom:10px;font-size:8px}.start-panel{margin:14px;padding:30px 24px;border-radius:24px}.start-panel h1{font-size:clamp(38px,13vw,58px)}.start-features{gap:8px 12px} }
+@media (max-width:820px) { .stage::after{background:linear-gradient(180deg,rgba(7,9,14,.36),transparent 32%,rgba(7,9,14,.35))}.quick-guide{display:none}.options-panel{width:min(88vw,340px);top:0;bottom:0;left:0;border-radius:0 24px 24px 0;padding:20px}.hud-advanced{padding:68px 10px 12px}.rec-badge{right:14px;bottom:14px}.feza-signature{right:12px;bottom:10px;font-size:8px}.start-panel{margin:14px;padding:30px 24px;border-radius:24px}.start-panel h1{font-size:clamp(38px,13vw,58px)}.start-features{gap:8px 12px} }
