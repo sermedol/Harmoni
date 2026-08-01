@@ -66,6 +66,19 @@ export function fingerStates(points) {
   ];
 }
 
+// MediaPipe'ın durağan elde ürettiği birkaç piksellik gürültüyü emer; gerçek
+// hareket büyüdükçe katsayı hızla yükselir ve el ağırlaşmış hissettirmez.
+export function smoothLandmarkPoint(previous, current) {
+  const movement = Math.hypot(current[0] - previous[0], current[1] - previous[1]);
+  const alpha = movement < 0.0028 ? 0.06 : clamp(0.12 + movement * 16, 0.16, 0.72);
+  const zAlpha = clamp(alpha * 0.8, 0.08, 0.58);
+  return [
+    previous[0] + (current[0] - previous[0]) * alpha,
+    previous[1] + (current[1] - previous[1]) * alpha,
+    previous[2] + (current[2] - previous[2]) * zAlpha,
+  ];
+}
+
 export class HandTracker {
   constructor({ processEvery = 2, maxHands = 2 } = {}) {
     this.available = false;
@@ -164,15 +177,7 @@ export class HandTracker {
         const previous = this.smoothLandmarks.get(label);
         let normalized;
         if (previous) {
-          let movement = 0;
-          for (let i = 0; i < rawNormalized.length; i++) movement += Math.hypot(rawNormalized[i][0] - previous[i][0], rawNormalized[i][1] - previous[i][1]);
-          movement /= rawNormalized.length;
-          const alpha = clamp(0.35 + movement * 8, 0.35, 0.82);
-          normalized = rawNormalized.map((p, i) => [
-            previous[i][0] * (1 - alpha) + p[0] * alpha,
-            previous[i][1] * (1 - alpha) + p[1] * alpha,
-            previous[i][2] * (1 - alpha) + p[2] * alpha,
-          ]);
+          normalized = rawNormalized.map((point, i) => smoothLandmarkPoint(previous[i], point));
         } else {
           normalized = rawNormalized;
         }

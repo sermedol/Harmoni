@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CAMERA_PROFILES, buildVideoConstraints, fitCover, shouldMirror } from "../../docs/js/camera/camera-math.js";
 import { Camera } from "../../docs/js/camera/camera.js";
-import { fingerStates } from "../../docs/js/camera/hand-tracker.js";
+import { fingerStates, smoothLandmarkPoint } from "../../docs/js/camera/hand-tracker.js";
 
 test("camera profiles degrade from 1080p to native fallback", () => {
   assert.deepEqual(CAMERA_PROFILES.slice(0, 4).map((p) => [p.width, p.height]), [[1920, 1080], [1280, 720], [960, 540], [640, 480]]);
@@ -73,4 +73,13 @@ test("finger extension is invariant when the hand rotates", () => {
   const angle = Math.PI / 2;
   const rotated = points.map(([x, y]) => [x * Math.cos(angle) - y * Math.sin(angle), x * Math.sin(angle) + y * Math.cos(angle)]);
   assert.deepEqual(fingerStates(rotated), [true, true, true, true, true]);
+});
+
+test("landmark filter suppresses micro jitter but follows deliberate motion", () => {
+  const previous = [.5, .5, 0];
+  const jitter = smoothLandmarkPoint(previous, [.502, .499, .002]);
+  assert.ok(Math.abs(jitter[0] - previous[0]) < .0002);
+  assert.ok(Math.abs(jitter[1] - previous[1]) < .0002);
+  const motion = smoothLandmarkPoint(previous, [.56, .5, 0]);
+  assert.ok(motion[0] > .535);
 });

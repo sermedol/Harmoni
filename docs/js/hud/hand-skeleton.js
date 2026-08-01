@@ -23,6 +23,8 @@ export function drawHandSkeletons(ctx, hands, theme) {
   ctx.save();
   ctx.globalAlpha = theme.dark ? 0.8 : 0.72;
   ctx.lineWidth = theme.dark ? 1 : 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   for (const hand of hands) {
     const color = hand.label === "RIGHT" ? theme.primary : theme.secondary;
