@@ -137,8 +137,8 @@ export class HandTracker {
         baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
         runningMode: "VIDEO",
         numHands: this.maxHands,
-        minHandDetectionConfidence: 0.50,
-        minTrackingConfidence: 0.45,
+        minHandDetectionConfidence: 0.35,
+        minTrackingConfidence: 0.35,
       });
       this.available = true;
     } catch (err) {

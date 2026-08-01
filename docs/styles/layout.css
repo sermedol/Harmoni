@@ -66,6 +66,12 @@
   flex-direction: column;
   align-items: flex-start;
   border-top: 3px solid var(--accent);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.chord-card:hover {
+  transform: translateX(-50%) translateY(-2px);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
 }
 
 .note-card {
@@ -537,13 +543,19 @@ body:not(.started) .rec-badge {
 .start-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.92);
-  backdrop-filter: blur(2px);
+  background: radial-gradient(circle at 60% 40%, rgba(224, 122, 63, 0.08) 0%, rgba(0, 0, 0, 0.92) 100%);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 20;
   pointer-events: auto;
+  animation: overlayFadeIn 0.6s ease-out;
+}
+
+@keyframes overlayFadeIn {
+  from { backdrop-filter: blur(0px); opacity: 0; }
+  to { backdrop-filter: blur(4px); opacity: 1; }
 }
 
 .typewriter-container {
@@ -573,6 +585,26 @@ body:not(.started) .rec-badge {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  animation: panelSlideUp 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: linear-gradient(135deg, rgba(45, 28, 25, 0.4) 0%, rgba(20, 15, 12, 0.6) 100%);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(224, 122, 63, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 48px 32px;
+}
+
+@keyframes panelSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
 }
 
 .start-brand {
@@ -581,6 +613,11 @@ body:not(.started) .rec-badge {
   letter-spacing: 0.1em;
   color: var(--text);
   margin-bottom: 8px;
+  animation: textFadeInUp 0.8s ease-out 0.2s both;
+  background: linear-gradient(135deg, #f5e8dc 0%, #e07a3f 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .start-tagline {
@@ -588,12 +625,25 @@ body:not(.started) .rec-badge {
   font-weight: 600;
   color: var(--accent);
   margin-bottom: 4px;
+  animation: textFadeInUp 0.8s ease-out 0.35s both;
 }
 
 .start-subtitle {
   font-size: 18px;
   color: var(--muted);
   margin-bottom: 20px;
+  animation: textFadeInUp 0.8s ease-out 0.45s both;
+}
+
+@keyframes textFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .start-features {
@@ -601,22 +651,48 @@ body:not(.started) .rec-badge {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin: 20px 0;
+  animation: featuresSlideIn 0.8s ease-out 0.5s both;
+}
+
+@keyframes featuresSlideIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .feature-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--panel) 50%, transparent);
+  padding: 16px 12px;
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.1) 0%, rgba(45, 26, 25, 0.2) 100%);
+  border: 1px solid rgba(224, 122, 63, 0.15);
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
+  cursor: default;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.feature-item:hover {
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.2) 0%, rgba(45, 26, 25, 0.3) 100%);
+  border-color: rgba(224, 122, 63, 0.3);
+  transform: translateY(-4px);
 }
 
 .feature-icon {
-  font-size: 20px;
+  font-size: 28px;
+  transition: transform 0.3s ease;
+}
+
+.feature-item:hover .feature-icon {
+  transform: scale(1.2);
 }
 
 .start-mode-select {
@@ -624,56 +700,115 @@ body:not(.started) .rec-badge {
   flex-direction: column;
   gap: 10px;
   margin: 16px 0;
+  animation: modeSelectFadeIn 0.8s ease-out 0.55s both;
+}
+
+@keyframes modeSelectFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .start-mode-select label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--panel2) 70%, transparent);
-  border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
-  border-radius: 8px;
+  gap: 12px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.08) 0%, rgba(45, 26, 25, 0.1) 100%);
+  border: 2px solid rgba(224, 122, 63, 0.2);
+  border-radius: 12px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
-  transition: all 0.2s ease;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  position: relative;
 }
 
 .start-mode-select label:hover {
-  background: color-mix(in srgb, var(--panel2) 85%, transparent);
-  border-color: color-mix(in srgb, var(--muted) 40%, transparent);
+  background: linear-gradient(135deg, rgba(224, 122, 63, 0.15) 0%, rgba(45, 26, 25, 0.2) 100%);
+  border-color: rgba(224, 122, 63, 0.4);
+  transform: translateX(4px);
 }
 
 .start-mode-select input[type="radio"] {
-  accent-color: var(--accent);
+  accent-color: #e07a3f;
   cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.start-mode-select input[type="radio"]:checked + span::after {
+  content: '✓';
+  position: absolute;
+  right: 12px;
+  color: #e07a3f;
+  font-weight: bold;
 }
 
 .start-button {
-  padding: 14px 36px;
+  padding: 16px 40px;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.06em;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+  animation: buttonFadeInUp 0.8s ease-out 0.6s both;
+}
+
+@keyframes buttonFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.start-button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+  pointer-events: none;
+}
+
+.start-button:active::before {
+  width: 300px;
+  height: 300px;
 }
 
 .start-button.primary {
-  background: var(--primary);
-  color: var(--bg);
+  background: linear-gradient(135deg, #e07a3f 0%, #d97506 100%);
+  color: #fff;
   margin: 12px 0;
+  box-shadow: 0 8px 24px rgba(224, 122, 63, 0.3);
 }
 
 .start-button.primary:hover {
-  filter: brightness(1.12);
-  transform: scale(1.02);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(224, 122, 63, 0.4);
 }
 
 .start-button.primary:active {
-  transform: scale(0.98);
+  transform: translateY(-1px);
 }
 
 .start-button.secondary {
