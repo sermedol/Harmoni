@@ -24,7 +24,7 @@ export class AudioGraph {
         sampleRate: 48000,
         latencyHint: lowLatency ? "interactive" : "playback",
       });
-      await this.ctx.audioWorklet.addModule("js/audio/worklet/harmoni-processor.js");
+      await this.ctx.audioWorklet.addModule("js/audio/worklet/harmoni-processor.js?v=20260801-20");
       this.workletNode = new AudioWorkletNode(this.ctx, "harmoni-processor", {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -46,7 +46,13 @@ export class AudioGraph {
 
     try {
       this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false,
+          channelCount: 1,
+          latency: { ideal: 0.01 },
+        },
         video: false,
       });
       const micSource = this.ctx.createMediaStreamSource(this.micStream);
@@ -73,6 +79,7 @@ export class AudioGraph {
     if (data.type !== "telemetry") return;
     this.state.latencyMs = this.ctx ? (this.ctx.baseLatency || 0) * 1000 : 0;
     if (data.waveform) this.state.waveform = data.waveform;
+    if (data.pitch) this.state.pitch = data.pitch;
     this.state.vocalLevel = data.vocalLevel || 0;
     this.state.outputLevel = data.synthMaxAbs || 0;
     this.state._lastTelemetry = data;

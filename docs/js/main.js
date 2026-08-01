@@ -8,7 +8,7 @@ import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "
 import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js";
 import { GENRES, getGenre } from "./constants/genres.js";
 import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, saveConfig } from "./config.js?v=20260801-20";
 import { createAppState } from "./app-state.js";
 import { Camera } from "./camera/camera.js";
 import { HandTracker } from "./camera/hand-tracker.js";
@@ -16,7 +16,7 @@ import { GestureController } from "./camera/gesture-controller.js";
 import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
 import { drawHandSkeletons } from "./hud/hand-skeleton.js";
 import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-19";
-import { AudioGraph } from "./audio/audio-graph.js";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260801-20";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -29,7 +29,10 @@ config.theme_index = 0;
 const state = createAppState();
 state.themeIndex = 0;
 state.simpleMode = true;
-state.monitorEnabled = config.monitor_enabled;
+// Eski sürümden kalan açık tercih akustik geri besleme yaratmasın. Nota ve
+// frekans analizi monitor kapalıyken de kesintisiz çalışır.
+config.monitor_enabled = false;
+state.monitorEnabled = false;
 state.tonalSelection = config.tonal_selection;
 state.musicGain = config.piano_volume;
 state.genreId = config.genre_id;
@@ -120,7 +123,7 @@ function setMonitorEnabled(value) {
   state.monitorEnabled = value;
   audioGraph?.postControl({ monitorEnabled: value });
   if (els.optMonitorToggle) {
-    els.optMonitorToggle.textContent = `Mikrofon monitoru: ${value ? "Acik" : "Kapali"}`;
+    els.optMonitorToggle.textContent = `Vokal duyumu: ${value ? "Açık" : "Kapalı"}`;
   }
   persistConfig();
 }
@@ -321,7 +324,7 @@ function updateOptionsPanel() {
   if (els.optTonal) els.optTonal.value = state.tonalSelection;
   if (els.optModeToggle) els.optModeToggle.textContent = state.simpleMode ? "Gelişmiş görünüm" : "Basit görünüm";
   if (els.optMonitorToggle) {
-    els.optMonitorToggle.textContent = `Mikrofon: ${state.monitorEnabled ? "Açık" : "Kapalı"}`;
+    els.optMonitorToggle.textContent = `Vokal duyumu: ${state.monitorEnabled ? "Açık" : "Kapalı"}`;
   }
 }
 

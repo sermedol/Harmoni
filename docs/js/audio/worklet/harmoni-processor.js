@@ -5,6 +5,7 @@
 // varsayilan olarak kullanilir) henuz yok.
 import { SynthEngine } from "./synth-engine.js";
 import { VocalDSP } from "./vocal-dsp.js";
+import { PitchTracker } from "./pitch-tracker.js";
 
 const DEFAULT_MUSIC = {
   bpm: 96,
@@ -20,12 +21,14 @@ class HarmoniProcessor extends AudioWorkletProcessor {
     super();
     this.synth = new SynthEngine(sampleRate);
     this.vocalDsp = new VocalDSP(sampleRate);
+    this.pitchTracker = new PitchTracker(sampleRate);
+    this.pitchSnapshot = null;
     this.music = { ...DEFAULT_MUSIC };
     // harmoni.py DEFAULT_CONFIG.monitor_enabled - kapatildiginda mikrofon
     // hoparlore YANSITILMAZ (vocal=0, DSP hic calismaz). Kulaklik takmadan
     // (mikrofon hoparloru duyacak sekilde) kullanildiginda bu kapatilmazsa
     // akustik geri besleme (cizirti/uluma) olusur - Python'daki ayni risk.
-    this.monitorEnabled = true;
+    this.monitorEnabled = false;
     this.vocalLevel = 0;
     this.tickCount = 0;
     this.telemetryEveryNQuanta = 8; // ~21ms araliklarla (128 ornek/quanta @ 48kHz)
@@ -73,6 +76,9 @@ class HarmoniProcessor extends AudioWorkletProcessor {
       let sumSq = 0;
       for (let i = 0; i < frames; i++) sumSq += mono[i] * mono[i];
       this.vocalLevel = Math.sqrt(sumSq / frames + 1e-12);
+      // Perde analizi her zaman ham mikrofon sinyalinden yapılır. Hoparlöre
+      // vokal duyumu kapalı olsa bile nota/frekans takibi canlı kalır.
+      this.pitchSnapshot = this.pitchTracker.submit(mono, currentTime * 1000);
 
       for (let i = 0; i < frames; i++) {
         this.waveformBuffer[this.waveformPos] = mono[i];
@@ -114,6 +120,7 @@ class HarmoniProcessor extends AudioWorkletProcessor {
           tickCount: this.tickCount,
           hasInput,
           vocalLevel: this.vocalLevel,
+          pitch: this.pitchSnapshot,
           synthMaxAbs: maxAbs,
           activeVoiceCount: this.synth.voices.length,
           waveform,

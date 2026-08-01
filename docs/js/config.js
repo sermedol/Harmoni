@@ -6,7 +6,9 @@ export const DEFAULT_CONFIG = {
   theme_index: 0,
   piano_volume: 0.30,
   performance: "balanced",
-  monitor_enabled: true,
+  // Mikrofon analizi bundan bağımsızdır. Bu seçenek yalnızca vokali
+  // hoparlöre geri verir ve hoparlör kullanımında uğultu oluşturabilir.
+  monitor_enabled: false,
   mirror: true,
   simple_mode: true,
   // "western:auto" | "western:<mod>" | "makam:<AD>"  (bkz. tonal-systems.js)

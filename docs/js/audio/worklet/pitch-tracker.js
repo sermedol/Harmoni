@@ -91,7 +91,9 @@ export class PitchTracker {
       sumSq += x[i] * x[i];
     }
     const rms = Math.sqrt(sumSq / n + 1e-12);
-    if (rms < 0.0045) {
+    // Dizüstü/telefon mikrofonlarında sakin vokali de yakala; düşük güven
+    // eşiği tek başına ortam gürültüsünün nota sayılmasını engeller.
+    if (rms < 0.0022) {
       this.frequencyHistory.length = 0;
       this.noteHistory.length = 0;
       return defaultSnapshot(rms, 0, now);
@@ -147,7 +149,7 @@ export class PitchTracker {
 
     const frequency = this.sampleRate / Math.max(lag, 1.0);
     const confidence = Math.max(0, Math.min(1, corr[Math.round(lag)] / zero));
-    if (frequency < minFreq || frequency > maxFreq || confidence < 0.24) {
+    if (frequency < minFreq || frequency > maxFreq || confidence < 0.20) {
       return defaultSnapshot(rms, confidence, now);
     }
 
