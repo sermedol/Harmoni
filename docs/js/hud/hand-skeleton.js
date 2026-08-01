@@ -30,15 +30,8 @@ function displayHand(source, now) {
 }
 
 function gestureLabel(gesture) {
-  const gestures = {
-    "OPEN_HAND": "Açık Avuç",
-    "FIST": "Yumruk",
-    "PEACE": "Barış İşareti",
-    "PINCH": "Pinch",
-    "POINTING_UP": "Yukarı İşaret",
-    "THUMB_UP": "Başparmak Yukarı",
-  };
-  return gestures[gesture] || gesture;
+  const replaced = gesture.replace("OPEN_HAND", "Acik").replace("FIST", "Kapali").replace("PEACE", "Peace");
+  return replaced.charAt(0).toUpperCase() + replaced.slice(1).toLowerCase();
 }
 
 function roundedRect(ctx, x, y, w, h, r) {
@@ -59,14 +52,16 @@ export function drawHandSkeletons(ctx, hands, theme) {
     if (!visibleLabels.has(label) && now - track.lastSeen > 220) displayTracks.delete(label);
   }
   ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = theme.dark ? 0.8 : 0.72;
+  ctx.lineWidth = theme.dark ? 1 : 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   for (const hand of renderedHands) {
     const color = hand.label === "RIGHT" ? theme.primary : theme.secondary;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = theme.dark ? 1 : 2;
 
     for (const [a, b] of HAND_CONNECTIONS) {
       ctx.beginPath();
@@ -74,38 +69,32 @@ export function drawHandSkeletons(ctx, hands, theme) {
       ctx.lineTo(hand.landmarks[b][0], hand.landmarks[b][1]);
       ctx.stroke();
     }
-
     for (const idx of [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]) {
       ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 2.5, 0, Math.PI * 2);
+      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 2, 0, Math.PI * 2);
       ctx.fill();
     }
-
     for (const idx of [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP]) {
       ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 4.5, 0, Math.PI * 2);
+      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 6.5, 0, Math.PI * 2);
+      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 6, 0, Math.PI * 2);
       ctx.stroke();
     }
 
     const [cx, cy] = hand.palmCenter;
-    let label = hand.label === "RIGHT" ? "Sağ El" : "Sol El";
-    label += " • " + gestureLabel(hand.gesture);
-    ctx.font = "11px sans-serif";
-    ctx.globalAlpha = 1;
+    let label = hand.label === "RIGHT" ? "Sag el" : "Sol el";
+    label += " - " + gestureLabel(hand.gesture);
+    ctx.font = "12px sans-serif";
     const tw = ctx.measureText(label).width;
-    roundedRect(ctx, cx - tw / 2 - 8, cy + 38, tw + 16, 22, 8);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.15;
+    roundedRect(ctx, cx - tw / 2 - 10, cy + 37, tw + 20, 25, 11);
+    ctx.fillStyle = theme.panel;
     ctx.fill();
-    ctx.globalAlpha = 1;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
     ctx.stroke();
     ctx.fillStyle = theme.text;
-    ctx.fillText(label, cx - tw / 2, cy + 52);
+    ctx.fillText(label, cx - tw / 2, cy + 54);
 
     if (hand.gesture === "PINCH") {
       ctx.strokeStyle = theme.accent;

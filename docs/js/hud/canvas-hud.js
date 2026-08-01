@@ -106,11 +106,13 @@ export function drawCanvasHud(ctx, v, theme, W, H) {
   corner(ctx, safe, H - safe, 1, -1, accent, 28);
   corner(ctx, W - safe, H - safe, -1, -1, accent, 28);
 
-  // ---- Sol ust: marka + secili tur ----
-  const brandW = 208;
-  card(ctx, 20, 18, brandW, 58, theme, { accent });
-  label(ctx, "HARMONİ", 34, 42, 19, theme.text, "700");
-  label(ctx, v.genreLabel || "Serbest mod", 34, 62, 11.5, theme.muted);
+  // Left identity rail.
+  text(ctx, "HARMONİ", 34, 46, portrait ? 23 : 19, theme.text, 780);
+  text(ctx, "PERFORMANS / 01", 34, portrait ? 70 : 65, portrait ? 11 : 9, theme.muted, 700, "left", MONO);
+  line(ctx, 34, 73, 182, 73, accent, 2, 0.8);
+  const statusColor = v.ready ? theme.success : theme.warning;
+  ctx.beginPath(); ctx.arc(35, 91, 3.5, 0, Math.PI * 2); ctx.fillStyle = statusColor; ctx.fill();
+  text(ctx, fitText(ctx, v.statusLabel || "Hazırlanıyor", 145, portrait ? 12 : 10, 650), 46, 95, portrait ? 12 : 10, theme.text, 650);
 
   // Central musical readout: typography and rails instead of another card.
   const centerY = portrait ? 152 : 48;

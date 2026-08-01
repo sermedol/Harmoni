@@ -133,13 +133,20 @@ export class HandTracker {
       const modulePromise = import(/* webpackIgnore: true */ `${VISION_BASE}/vision_bundle.mjs`);
       const { HandLandmarker, FilesetResolver } = await Promise.race([modulePromise, timeout]);
       const fileset = await FilesetResolver.forVisionTasks(`${VISION_BASE}/wasm`);
-      this.landmarker = await HandLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
-        runningMode: "VIDEO",
-        numHands: this.maxHands,
-        minHandDetectionConfidence: 0.35,
-        minTrackingConfidence: 0.35,
-      });
+      let lastError;
+      for (const delegate of ["GPU", "CPU"]) {
+        try {
+          this.landmarker = await HandLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate },
+            runningMode: "VIDEO", numHands: this.maxHands,
+            minHandDetectionConfidence: 0.62, minHandPresenceConfidence: 0.56,
+            minTrackingConfidence: 0.58,
+          });
+          this.delegate = delegate;
+          break;
+        } catch (error) { lastError = error; }
+      }
+      if (!this.landmarker) throw lastError || new Error("El modeli başlatılamadı");
       this.available = true;
     } catch (err) {
       console.warn("HandTracker: MediaPipe yuklenemedi, el takibi devre disi.", err);
@@ -203,11 +210,7 @@ export class HandTracker {
         const previous = this.smoothLandmarks.get(label);
         let normalized;
         if (previous) {
-          normalized = rawNormalized.map((p, i) => [
-            previous[i][0] * 0.68 + p[0] * 0.32,
-            previous[i][1] * 0.68 + p[1] * 0.32,
-            previous[i][2] * 0.68 + p[2] * 0.32,
-          ]);
+          normalized = rawNormalized.map((point, i) => smoothLandmarkPoint(previous[i], point));
         } else {
           normalized = rawNormalized;
         }

@@ -1,18 +1,25 @@
-// Harmoni Web - v20260801-v1. El hareketleriyle canlı orkestra eşliği.
-import { applyTheme, getTheme } from "./constants/themes.js";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js";
-import { GENRES, getGenre } from "./constants/genres.js";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js";
-import { loadConfig, saveConfig } from "./config.js";
-import { createAppState } from "./app-state.js";
-import { Camera } from "./camera/camera.js";
-import { HandTracker } from "./camera/hand-tracker.js";
-import { GestureController } from "./camera/gesture-controller.js";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js";
-import { drawHandSkeletons } from "./hud/hand-skeleton.js";
-import { drawCanvasHud } from "./hud/canvas-hud.js";
-import { AudioGraph } from "./audio/audio-graph.js";
+// Harmoni Web - bootstrap. Milestone 3: audio-graph/worklet iskeleti eklendi.
+// Gercek SynthEngine/VocalDSP zinciri henuz worklet icinde yok (Milestone
+// 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
+// ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
+// icin) hem de (varsa) worklet'e control mesajlarini gunceller.
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260801-25";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260801-25";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260801-25";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260801-25";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260801-25";
+import { loadConfig, saveConfig } from "./config.js?v=20260801-29";
+import { createAppState } from "./app-state.js?v=20260801-25";
+import { Camera } from "./camera/camera.js?v=20260801-29";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260801-36";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260801-31";
+import { GestureController } from "./camera/gesture-controller.js?v=20260801-37";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260801-32";
+import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260801-31";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260801-35";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260801-25";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260801-25";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260801-25";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -44,13 +51,12 @@ const els = {
   hudSimple: document.getElementById("hud-simple"),
   hudAdvanced: document.getElementById("hud-advanced"),
   guideOverlay: document.getElementById("guide-overlay"),
-  guideClose: document.getElementById("guide-overlay")?.querySelector(".guide-close"),
   startOverlay: document.getElementById("start-overlay"),
-  typewriterContainer: document.getElementById("typewriter-container"),
-  typewriterText: document.getElementById("typewriter-text"),
-  startPanelContent: document.getElementById("start-panel-content"),
   startButton: document.getElementById("start-button"),
-  cameraSkipButton: document.getElementById("camera-skip-button"),
+  startPanel: document.getElementById("start-panel"),
+  introSequence: document.getElementById("intro-sequence"),
+  introText: document.getElementById("intro-text"),
+  introAnnouncer: document.getElementById("intro-announcer"),
   advVersion: document.getElementById("adv-version"),
   guideGestures: document.getElementById("guide-gestures"),
   guideKeys: document.getElementById("guide-keys"),
@@ -107,6 +113,11 @@ const els = {
   optRecord: document.getElementById("opt-record"),
   recBadge: document.getElementById("rec-badge"),
   recTime: document.getElementById("rec-time"),
+  panelToggle: document.getElementById("panel-toggle"),
+  panelClose: document.getElementById("panel-close"),
+  panelBackdrop: document.getElementById("panel-backdrop"),
+  optionsPanel: document.getElementById("options-panel"),
+  guideClose: document.getElementById("guide-close"),
 };
 
 const ctx = els.sceneCanvas.getContext("2d");
@@ -139,7 +150,7 @@ resizeSceneCanvas();
 
 function applyModeVisibility() {
   // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada
-  // yalnizca Gelişmiş Mod'un ek teknik panelleri ac/kapa edilir.
+  // yalnizca Gelismis Mod'un ek teknik panelleri ac/kapa edilir.
   els.hudSimple.hidden = !state.simpleMode;
   els.hudAdvanced.hidden = state.simpleMode;
 }
@@ -167,7 +178,7 @@ function setMonitorEnabled(value) {
   state.monitorEnabled = value;
   audioGraph?.postControl({ monitorEnabled: value });
   if (els.optMonitorToggle) {
-    els.optMonitorToggle.textContent = `Mikrofon monitoru: ${value ? "Açık" : "Kapalı"}`;
+    els.optMonitorToggle.textContent = `Vokal duyumu: ${value ? "Açık" : "Kapalı"}`;
   }
   persistConfig();
 }
@@ -338,7 +349,7 @@ async function toggleRecording() {
   const ok = recorder.start(30);
   if (!ok) {
     els.optRecord.textContent = "Kayıt desteklenmiyor";
-    console.warn("Kayit başlatılamadı:", recorder.lastError);
+    console.warn("Kayit baslatilamadi:", recorder.lastError);
     setTimeout(() => (els.optRecord.textContent = "● Kayıt başlat"), 2500);
     return;
   }
@@ -434,27 +445,23 @@ function wireOptionsPanel() {
     renderInstrumentGrid();
   });
   els.optGuide?.addEventListener("click", () => toggleGuide());
-  els.guideClose?.addEventListener("click", () => toggleGuide());
 }
 
 function renderGuide() {
   const gestureLines = [
-    "İki elde AÇIK AVUÇ (0.55sn) → tam orkestra",
-    "PINCH (baş parmak+işaret) → vokal reverb/eco miktarı",
-    "AÇIK AVUÇ (tek el) → sağ: Yaylılar, sol: Pad",
-    "BARIŞ İŞARETİ (işaret+orta) → Ritim (bateri)",
-    "YUMRUK → ekstra katmanları kapat (yalnız piyano)",
-    "İŞARET PARMAĞI → katmanlar arasında geçiş",
+    "İki açık avuç · Tam orkestrayı etkinleştirir",
+    "Başparmak ve işaret parmağı · Reverb miktarını ayarlar",
+    "Tek açık avuç · Sağ el yaylıları, sol el pad katmanını yönetir",
+    "Barış işareti · Ritim katmanını açar veya kapatır",
+    "Yumruk · Ek katmanları kapatır ve yalnızca piyanoyu bırakır",
+    "İşaret parmağı · Enstrüman katmanları arasında geçiş yapar",
   ];
   els.guideGestures.innerHTML = `<h3>Jestler</h3><ul>${gestureLines.map((l) => `<li>${l}</li>`).join("")}</ul>`;
 
   const layerLines = Object.entries(LAYER_KEYS).map(([key, [, label]]) => `${key.toUpperCase()} ${label}`);
   const otherKeys = [
-    "Tab basit/gelişmiş görünüm", "T tonalite (Batı/Makam)", "D dizi rengi",
-    "A oto-düzenleme", "F tam orkestra", "X sadece piyano",
-    "R kayıt", "S ekran görüntüsü", "1-4 tema", "H arayüz",
-    "E vokal fx", "V monitoring", "Space tap tempo", "[ ] bpm",
-    "- + reverb", "9 0 piyano seviyesi", "M ayna", "/ kılavuz",
+    "T · Makam/dizi seçenekleri arasında geçiş", "F · Tam orkestra", "X · Yalnız piyano",
+    "R · Kayıt", "V · Vokal duyumu", "/ · Kılavuz", "Esc · Açık paneli kapat",
   ];
   els.guideKeys.innerHTML = `
     <h3>Enstruman katmanlari</h3>
@@ -462,48 +469,6 @@ function renderGuide() {
     <h3>Diger tuslar</h3>
     <ul>${otherKeys.map((l) => `<li>${l}</li>`).join("")}</ul>
   `;
-}
-
-let introSkipped = false;
-let introAbortController = null;
-
-async function runTypewriterIntro() {
-  if (introSkipped) return;
-  introAbortController = new AbortController();
-  const signal = introAbortController.signal;
-
-  const sequences = [
-    { text: "Selam,", duration: 600 },
-    { erase: true, duration: 400 },
-    { text: "kafamın içine", duration: 900 },
-    { erase: true, duration: 400 },
-    { text: "hoş geldiniz :)", duration: 800 },
-  ];
-
-  for (const seq of sequences) {
-    if (signal.aborted || introSkipped) break;
-    if (seq.erase) {
-      els.typewriterText.textContent = "";
-    } else {
-      els.typewriterText.textContent = seq.text;
-    }
-    await new Promise((r) => setTimeout(r, seq.duration));
-  }
-
-  if (!signal.aborted && !introSkipped) {
-    els.typewriterContainer.hidden = true;
-    els.startPanelContent.hidden = false;
-  }
-}
-
-function skipIntro() {
-  if (introSkipped) return;
-  introSkipped = true;
-  if (introAbortController) introAbortController.abort();
-  els.typewriterContainer.hidden = true;
-  els.startPanelContent.hidden = false;
-  els.startPanelContent.style.opacity = "1";
-  els.startPanelContent.style.filter = "blur(0)";
 }
 
 function handleKeydown(event) {
@@ -672,7 +637,7 @@ function updateHudLive() {
   }
   els.simpleStatusDot.classList.toggle("ready", ready);
   els.simpleStatusLabel.textContent = ready
-    ? "Hazır"
+    ? "Hazir"
     : !camOnline
     ? "Kamera bekleniyor"
     : "Ses bekleniyor";
@@ -684,7 +649,7 @@ function updateHudLive() {
   els.simpleInstrumentRow.textContent = names.length ? names.join(" | ") : "Sessiz";
 
   if (els.advStatusLine) {
-    els.advStatusLine.textContent = ready ? "Dinliyor ve eşlik ediyor" : "Başlatılıyor...";
+    els.advStatusLine.textContent = ready ? "Dinliyor ve eslik ediyor" : "Baslatiliyor...";
   }
   if (els.advStatusSub) {
     els.advStatusSub.textContent = `kamera ${state.cameraFps.toFixed(0)}fps  el ${state.detectorFps.toFixed(0)}fps  gecikme ${state.latencyMs.toFixed(0)}ms`;
@@ -894,13 +859,46 @@ function hideCameraError() {
   els.cameraErrorOverlay.hidden = true;
 }
 
-function skipCamera() {
-  hideCameraError();
-  state.cameraStatus = "SKIPPED";
-  startExperience();
+function announceCamera(message) {
+  if (els.cameraStatusLive) els.cameraStatusLive.textContent = message;
 }
 
-async function tryStartCamera() {
+function populateCameraDevices(devices) {
+  if (!els.optCamera) return;
+  const selected = config.camera_device_id || "";
+  els.optCamera.replaceChildren(new Option("Varsayılan kamera", ""));
+  devices.forEach((device, index) => els.optCamera.add(new Option(device.label || `Kamera ${index + 1}`, device.deviceId)));
+  els.optCamera.value = devices.some((device) => device.deviceId === selected) ? selected : "";
+  els.cameraSwitch.hidden = devices.length < 2;
+}
+
+function bindCamera(cameraInstance) {
+  cameraInstance.addEventListener("deviceschange", (event) => populateCameraDevices(event.detail));
+  cameraInstance.addEventListener("statechange", (event) => {
+    const { status, reason } = event.detail;
+    document.querySelector(".stage")?.classList.toggle("camera-starting", ["requesting", "starting"].includes(status));
+    document.querySelector(".stage")?.classList.toggle("camera-online", status === "online");
+    els.cameraActive.hidden = status !== "online";
+    if (status === "requesting") announceCamera("Kamera izni bekleniyor");
+    if (status === "starting") announceCamera("Kamera hazırlanıyor");
+    if (status === "online") announceCamera("Kamera hazır");
+    if (status === "interrupted") {
+      announceCamera("Kamera bağlantısı kesildi");
+      state.cameraStatus = "INTERRUPTED";
+      handTracker?.reset?.();
+      if (reason === "ended") showCameraError({ title: "Kamera bağlantısı kesildi", detail: "Kamerayı yeniden bağlayıp Tekrar dene'ye basın." });
+    }
+  });
+}
+
+async function tryStartCamera(options = {}) {
+  if (cameraStartPromise) return cameraStartPromise;
+  cameraStartPromise = tryStartCameraOnce(options).finally(() => { cameraStartPromise = null; });
+  return cameraStartPromise;
+}
+
+async function tryStartCameraOnce({ facingMode = config.camera_facing_mode, deviceId = "" } = {}) {
+  state.capabilities.camera = "requesting";
   els.cameraRetryButton.disabled = true;
   els.cameraRetryButton.textContent = "Deneniyor...";
   camera?.destroy();
@@ -1088,6 +1086,8 @@ function bootstrap() {
   updateOptionsPanel();
   if (els.optVolume) els.optVolume.value = String(Math.round(state.musicGain * 100));
   setMusicGain(state.musicGain);
+  // Kayitli bir tur varsa onu uygula (dizi + kadro + tempoyu birlikte kurar);
+  // yoksa yalnizca kayitli diziye don.
   if (state.genreId && getGenre(state.genreId)) {
     applyGenre(state.genreId);
   } else {
@@ -1095,14 +1095,7 @@ function bootstrap() {
     setBpm(state.music.bpm);
   }
   window.addEventListener("keydown", handleKeydown);
-
-  // Typewriter intro: skip with Enter, Space, Escape, or click
-  runTypewriterIntro();
-  els.typewriterContainer.addEventListener("click", skipIntro);
-  document.addEventListener("keydown", (e) => {
-    if (["Enter", " ", "Escape"].includes(e.key)) skipIntro();
-  });
-
+  window.addEventListener("pagehide", () => { destroyExperience(); }, { once: true });
   els.startButton.addEventListener("click", () => {
     startExperience();
   });
@@ -1117,12 +1110,14 @@ function bootstrap() {
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
   });
-  els.cameraSkipButton?.addEventListener("click", () => {
-    skipCamera();
-  });
-
-  if (DEMO_MODE) {
-    els.startButton.textContent = "Demo modunu başlat";
+  if (els.optCamera) {
+    els.optCamera.value = config.camera_device_id || "";
+    els.optCamera.addEventListener("change", async () => {
+      config.camera_device_id = els.optCamera.value;
+      persistConfig();
+      handTracker?.reset?.();
+      await tryStartCamera({ deviceId: config.camera_device_id });
+    });
   }
   els.cameraRestart?.addEventListener("click", () => tryStartCamera());
   els.cameraSwitch?.addEventListener("click", async () => {
@@ -1186,10 +1181,6 @@ function bootstrap() {
 }
 
 bootstrap();
-
-const buildMeta = document.querySelector('meta[name="harmoni-build"]');
-const buildVersion = buildMeta?.getAttribute('content') || 'unknown';
-console.log(`Harmoni v${buildVersion} — El hareketleriyle canlı orkestra eşliği`);
 
 if (new URLSearchParams(location.search).has("debug")) {
   els.debugLog.hidden = false;
