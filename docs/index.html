@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Harmoni — El hareketiyle canli orkestra eslgi</title>
-<meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
+<meta name="harmoni-build" content="20260801-v1">
+<title>Harmoni — El hareketleriyle canlı orkestra eşliği</title>
+<meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gerçek zamanlı piyano/orkestra eşliği üreten tarayıcı tabanlı müzik aracı." />
 <link rel="icon" href="data:," />
-<link rel="stylesheet" href="styles/theme.css" />
-<link rel="stylesheet" href="styles/layout.css" />
+<link rel="stylesheet" href="styles/theme.css?v=20260801-v1" />
+<link rel="stylesheet" href="styles/layout.css?v=20260801-v1" />
 </head>
 <body>
   <div id="app" class="app">
@@ -17,13 +18,13 @@
 
       <div id="hud-simple" class="hud-simple" hidden>
         <div class="chord-card soft-card" id="simple-chord-card">
-          <div class="card-label">ESLIK</div>
+          <div class="card-label">EŞLİK</div>
           <div class="chord-name" id="simple-chord-name">--</div>
           <div class="chord-detail" id="simple-chord-detail">-- BPM</div>
           <div class="tonal-badge pill" id="simple-tonal-badge">BATI</div>
         </div>
         <div class="note-card soft-card" id="simple-note-card">
-          <div class="card-label">SESIN</div>
+          <div class="card-label">SESİN</div>
           <div class="note-name" id="simple-note-name">--</div>
         </div>
         <div class="status-dot-row" id="simple-status-row">
@@ -31,10 +32,10 @@
           <span class="status-label" id="simple-status-label">Kamera bekleniyor</span>
         </div>
         <div class="instrument-strip soft-card" id="simple-instrument-strip">
-          <div class="card-label">CALAN ENSTRUMANLAR</div>
+          <div class="card-label">ÇALAN ENSTRÜMANLAR</div>
           <div class="instrument-row" id="simple-instrument-row">Sessiz</div>
         </div>
-        <div class="mode-hint" id="simple-mode-hint">Gelismis gorunum: Tab | Kilavuz: /</div>
+        <div class="mode-hint" id="simple-mode-hint">Gelişmiş görünüm: Tab | Kılavuz: /</div>
       </div>
 
       <!-- Dalga formu ve secenekler paneli her iki gorunumde de erisilebilir
@@ -45,7 +46,7 @@
 
       <button class="panel-toggle" id="panel-toggle" aria-label="Seçenekler">☰</button>
 
-      <div class="options-panel soft-card" id="options-panel">
+      <div class="options-panel soft-card" id="options-panel" role="complementary" aria-label="Seçenekler">
           <div class="panel-title">
             <span>Seçenekler</span>
             <button class="panel-close" id="panel-close" aria-label="Kapat">×</button>
@@ -149,33 +150,73 @@
             <canvas id="keyboard-canvas" class="keyboard-canvas"></canvas>
           </div>
         </div>
-        <div class="mode-hint" id="advanced-mode-hint">Basit gorunum: Tab | Kilavuz: /</div>
+        <div class="mode-hint" id="advanced-mode-hint">Basit görünüm: Tab | Kılavuz: /</div>
       </div>
 
-      <div id="camera-error-overlay" class="camera-error-overlay" hidden>
+      <div id="camera-error-overlay" class="camera-error-overlay" hidden aria-modal="true" role="alertdialog">
         <div class="camera-error-panel soft-card">
           <div class="camera-error-icon">📷</div>
-          <h2 id="camera-error-title">Kamera baslatilamadi</h2>
+          <h2 id="camera-error-title">Kamera başlatılamadı</h2>
           <p id="camera-error-detail">-</p>
-          <button id="camera-retry-button" class="start-button">Tekrar dene</button>
+          <div class="camera-error-buttons">
+            <button id="camera-retry-button" class="start-button" autofocus>Tekrar dene</button>
+            <button id="camera-skip-button" class="start-button secondary">Kamerasız devam et</button>
+          </div>
         </div>
       </div>
 
-      <div id="guide-overlay" class="guide-overlay" hidden>
+      <div id="guide-overlay" class="guide-overlay" hidden aria-modal="true" role="dialog">
         <div class="guide-panel soft-card">
-          <h2>Harmoni Kullanim Kilavuzu</h2>
+          <h2>Harmoni Kullanım Kılavuzu</h2>
           <div id="guide-gestures"></div>
           <div id="guide-keys"></div>
-          <div class="guide-hint">Kapatmak icin / veya Esc</div>
+          <button class="panel-close guide-close" aria-label="Kapat">×</button>
+          <div class="guide-hint">Kapatmak için / veya Esc</div>
         </div>
       </div>
 
-      <div id="start-overlay" class="start-overlay">
-        <div class="start-panel soft-card">
-          <h1>Harmoni</h1>
-          <p>Kamera ve mikrofon erisimi ile el hareketleriyle kontrol edilen canli orkestra eslgi.</p>
-          <button id="start-button" class="start-button">Basla</button>
-          <p class="start-note">Tarayicinin kamera/mikrofon izni istemesi normaldir.</p>
+      <div id="start-overlay" class="start-overlay" role="main" aria-label="Harmoni başlatma ekranı">
+        <div id="typewriter-container" class="typewriter-container" aria-live="polite">
+          <div id="typewriter-text" class="typewriter-text"></div>
+        </div>
+        <div class="start-panel soft-card" id="start-panel-content" hidden>
+          <div class="start-brand">HARMONİ</div>
+          <div class="start-tagline">Sesinle eşlik oluştur.</div>
+          <div class="start-subtitle">Ellerinle orkestrayı yönet.</div>
+
+          <div class="start-features">
+            <div class="feature-item">
+              <span class="feature-icon">📷</span>
+              <span class="feature-text">Kamera izni</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">🎤</span>
+              <span class="feature-text">Mikrofon izni</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">🎵</span>
+              <span class="feature-text">Orkestra</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">🎧</span>
+              <span class="feature-text">Kulaklık (isteğe bağlı)</span>
+            </div>
+          </div>
+
+          <div class="start-mode-select">
+            <label>
+              <input type="radio" name="start-mode" value="voice" checked>
+              <span>Sesinle oyun (ses analizi)</span>
+            </label>
+            <label>
+              <input type="radio" name="start-mode" value="gesture">
+              <span>Jestlerle oyun (el hareketi)</span>
+            </label>
+          </div>
+
+          <button id="start-button" class="start-button primary">PERFORMANSI BAŞLAT</button>
+
+          <div class="start-signature">feza işlevli oyuncaklarını sunar :)</div>
         </div>
       </div>
     </div>
@@ -183,6 +224,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=20260801-v1"></script>
 </body>
 </html>

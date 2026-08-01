@@ -1,8 +1,4 @@
-// Harmoni Web - bootstrap. Milestone 3: audio-graph/worklet iskeleti eklendi.
-// Gercek SynthEngine/VocalDSP zinciri henuz worklet icinde yok (Milestone
-// 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
-// ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
-// icin) hem de (varsa) worklet'e control mesajlarini gunceller.
+// Harmoni Web - v20260801-v1. El hareketleriyle canlı orkestra eşliği.
 import { applyTheme, getTheme } from "./constants/themes.js";
 import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js";
 import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js";
@@ -35,8 +31,13 @@ const els = {
   hudSimple: document.getElementById("hud-simple"),
   hudAdvanced: document.getElementById("hud-advanced"),
   guideOverlay: document.getElementById("guide-overlay"),
+  guideClose: document.getElementById("guide-overlay")?.querySelector(".guide-close"),
   startOverlay: document.getElementById("start-overlay"),
+  typewriterContainer: document.getElementById("typewriter-container"),
+  typewriterText: document.getElementById("typewriter-text"),
+  startPanelContent: document.getElementById("start-panel-content"),
   startButton: document.getElementById("start-button"),
+  cameraSkipButton: document.getElementById("camera-skip-button"),
   advVersion: document.getElementById("adv-version"),
   guideGestures: document.getElementById("guide-gestures"),
   guideKeys: document.getElementById("guide-keys"),
@@ -73,9 +74,6 @@ const els = {
   optRecord: document.getElementById("opt-record"),
   recBadge: document.getElementById("rec-badge"),
   recTime: document.getElementById("rec-time"),
-  panelToggle: document.getElementById("panel-toggle"),
-  panelClose: document.getElementById("panel-close"),
-  optionsPanel: document.getElementById("options-panel"),
 };
 
 els.sceneCanvas.width = CAM_WIDTH;
@@ -84,7 +82,7 @@ const ctx = els.sceneCanvas.getContext("2d");
 
 function applyModeVisibility() {
   // Basit Mod'un bilgi kartlari canvas'a cizildigi icin (canvas-hud.js) burada
-  // yalnizca Gelismis Mod'un ek teknik panelleri ac/kapa edilir.
+  // yalnizca Gelişmiş Mod'un ek teknik panelleri ac/kapa edilir.
   els.hudSimple.hidden = !state.simpleMode;
   els.hudAdvanced.hidden = state.simpleMode;
 }
@@ -111,7 +109,7 @@ function setMonitorEnabled(value) {
   state.monitorEnabled = value;
   audioGraph?.postControl({ monitorEnabled: value });
   if (els.optMonitorToggle) {
-    els.optMonitorToggle.textContent = `Mikrofon monitoru: ${value ? "Acik" : "Kapali"}`;
+    els.optMonitorToggle.textContent = `Mikrofon monitoru: ${value ? "Açık" : "Kapalı"}`;
   }
   persistConfig();
 }
@@ -279,7 +277,7 @@ async function toggleRecording() {
   const ok = recorder.start(30);
   if (!ok) {
     els.optRecord.textContent = "Kayıt desteklenmiyor";
-    console.warn("Kayit baslatilamadi:", recorder.lastError);
+    console.warn("Kayit başlatılamadı:", recorder.lastError);
     setTimeout(() => (els.optRecord.textContent = "● Kayıt başlat"), 2500);
     return;
   }
@@ -332,26 +330,27 @@ function wireOptionsPanel() {
     renderInstrumentGrid();
   });
   els.optGuide?.addEventListener("click", () => toggleGuide());
+  els.guideClose?.addEventListener("click", () => toggleGuide());
 }
 
 function renderGuide() {
   const gestureLines = [
-    "Iki elde ACIK AVUC (0.55sn) -> tam orkestra",
-    "PINCH (bas parmak+isaret) -> vokal reverb/eco miktari",
-    "ACIK AVUC (tek el) -> sag: Yaylilar, sol: Pad",
-    "BARIS ISARETI (isaret+orta) -> Ritim (bateri)",
-    "YUMRUK -> ekstra katmanlari kapat (yalniz piyano)",
-    "ISARET PARMAGI -> katmanlar arasinda gecis",
+    "İki elde AÇIK AVUÇ (0.55sn) → tam orkestra",
+    "PINCH (baş parmak+işaret) → vokal reverb/eco miktarı",
+    "AÇIK AVUÇ (tek el) → sağ: Yaylılar, sol: Pad",
+    "BARIŞ İŞARETİ (işaret+orta) → Ritim (bateri)",
+    "YUMRUK → ekstra katmanları kapat (yalnız piyano)",
+    "İŞARET PARMAĞI → katmanlar arasında geçiş",
   ];
   els.guideGestures.innerHTML = `<h3>Jestler</h3><ul>${gestureLines.map((l) => `<li>${l}</li>`).join("")}</ul>`;
 
   const layerLines = Object.entries(LAYER_KEYS).map(([key, [, label]]) => `${key.toUpperCase()} ${label}`);
   const otherKeys = [
-    "Tab basit/gelismis gorunum", "T tonalite (Bati/Makam)", "D dizi rengi",
-    "A oto-duzenleme", "F tam orkestra", "X sadece piyano",
-    "R kayit", "S ekran goruntusu", "1-4 tema", "H arayuz",
+    "Tab basit/gelişmiş görünüm", "T tonalite (Batı/Makam)", "D dizi rengi",
+    "A oto-düzenleme", "F tam orkestra", "X sadece piyano",
+    "R kayıt", "S ekran görüntüsü", "1-4 tema", "H arayüz",
     "E vokal fx", "V monitoring", "Space tap tempo", "[ ] bpm",
-    "- + reverb", "9 0 piyano seviyesi", "M ayna", "/ kilavuz",
+    "- + reverb", "9 0 piyano seviyesi", "M ayna", "/ kılavuz",
   ];
   els.guideKeys.innerHTML = `
     <h3>Enstruman katmanlari</h3>
@@ -359,6 +358,48 @@ function renderGuide() {
     <h3>Diger tuslar</h3>
     <ul>${otherKeys.map((l) => `<li>${l}</li>`).join("")}</ul>
   `;
+}
+
+let introSkipped = false;
+let introAbortController = null;
+
+async function runTypewriterIntro() {
+  if (introSkipped) return;
+  introAbortController = new AbortController();
+  const signal = introAbortController.signal;
+
+  const sequences = [
+    { text: "Selam,", duration: 600 },
+    { erase: true, duration: 400 },
+    { text: "kafamın içine", duration: 900 },
+    { erase: true, duration: 400 },
+    { text: "hoş geldiniz :)", duration: 800 },
+  ];
+
+  for (const seq of sequences) {
+    if (signal.aborted || introSkipped) break;
+    if (seq.erase) {
+      els.typewriterText.textContent = "";
+    } else {
+      els.typewriterText.textContent = seq.text;
+    }
+    await new Promise((r) => setTimeout(r, seq.duration));
+  }
+
+  if (!signal.aborted && !introSkipped) {
+    els.typewriterContainer.hidden = true;
+    els.startPanelContent.hidden = false;
+  }
+}
+
+function skipIntro() {
+  if (introSkipped) return;
+  introSkipped = true;
+  if (introAbortController) introAbortController.abort();
+  els.typewriterContainer.hidden = true;
+  els.startPanelContent.hidden = false;
+  els.startPanelContent.style.opacity = "1";
+  els.startPanelContent.style.filter = "blur(0)";
 }
 
 function handleKeydown(event) {
@@ -513,7 +554,7 @@ function updateHudLive() {
   const ready = camOnline && audioOnline;
   els.simpleStatusDot.classList.toggle("ready", ready);
   els.simpleStatusLabel.textContent = ready
-    ? "Hazir"
+    ? "Hazır"
     : !camOnline
     ? "Kamera bekleniyor"
     : "Ses bekleniyor";
@@ -525,7 +566,7 @@ function updateHudLive() {
   els.simpleInstrumentRow.textContent = names.length ? names.join(" | ") : "Sessiz";
 
   if (els.advStatusLine) {
-    els.advStatusLine.textContent = ready ? "Dinliyor ve eslik ediyor" : "Baslatiliyor...";
+    els.advStatusLine.textContent = ready ? "Dinliyor ve eşlik ediyor" : "Başlatılıyor...";
   }
   if (els.advStatusSub) {
     els.advStatusSub.textContent = `kamera ${state.cameraFps.toFixed(0)}fps  el ${state.detectorFps.toFixed(0)}fps  gecikme ${state.latencyMs.toFixed(0)}ms`;
@@ -623,6 +664,12 @@ function hideCameraError() {
   els.cameraErrorOverlay.hidden = true;
 }
 
+function skipCamera() {
+  hideCameraError();
+  state.cameraStatus = "SKIPPED";
+  startExperience();
+}
+
 async function tryStartCamera() {
   els.cameraRetryButton.disabled = true;
   els.cameraRetryButton.textContent = "Deneniyor...";
@@ -687,8 +734,6 @@ function bootstrap() {
   updateOptionsPanel();
   if (els.optVolume) els.optVolume.value = String(Math.round(state.musicGain * 100));
   setMusicGain(state.musicGain);
-  // Kayitli bir tur varsa onu uygula (dizi + kadro + tempoyu birlikte kurar);
-  // yoksa yalnizca kayitli diziye don.
   if (state.genreId && getGenre(state.genreId)) {
     applyGenre(state.genreId);
   } else {
@@ -696,19 +741,34 @@ function bootstrap() {
     setBpm(state.music.bpm);
   }
   window.addEventListener("keydown", handleKeydown);
+
+  // Typewriter intro: skip with Enter, Space, Escape, or click
+  runTypewriterIntro();
+  els.typewriterContainer.addEventListener("click", skipIntro);
+  document.addEventListener("keydown", (e) => {
+    if (["Enter", " ", "Escape"].includes(e.key)) skipIntro();
+  });
+
   els.startButton.addEventListener("click", () => {
     startExperience();
   });
   els.cameraRetryButton.addEventListener("click", () => {
     tryStartCamera();
   });
+  els.cameraSkipButton?.addEventListener("click", () => {
+    skipCamera();
+  });
 
   if (DEMO_MODE) {
-    els.startButton.textContent = "Demo modunu baslat";
+    els.startButton.textContent = "Demo modunu başlat";
   }
 }
 
 bootstrap();
+
+const buildMeta = document.querySelector('meta[name="harmoni-build"]');
+const buildVersion = buildMeta?.getAttribute('content') || 'unknown';
+console.log(`Harmoni v${buildVersion} — El hareketleriyle canlı orkestra eşliği`);
 
 if (new URLSearchParams(location.search).has("debug")) {
   els.debugLog.hidden = false;
