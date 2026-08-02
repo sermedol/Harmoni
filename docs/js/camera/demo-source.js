@@ -145,11 +145,19 @@ export function createDemoHandSource(width = 1280, height = 720) {
   };
 }
 
+/**
+ * Demo modunun kamera yerine gecen zemini.
+ *
+ * Onceki surum tum renk carkinda donen bir hsl gradyani kullaniyordu; bu,
+ * demo modunda ekranin yesile donmesine yol aciyordu. Artik zemin bordo
+ * palette kalir ve yalnizca cok yavas bir ton kaymasi yapar.
+ */
 export function drawDemoBackground(ctx, width, height, t) {
   const grad = ctx.createLinearGradient(0, 0, width, height);
-  const hue = (t * 12) % 360;
-  grad.addColorStop(0, `hsl(${hue}, 35%, 12%)`);
-  grad.addColorStop(1, `hsl(${(hue + 60) % 360}, 35%, 8%)`);
+  // 340-360 derece: bordo / sarap aralligi. Disina cikmaz.
+  const hue = 348 + Math.sin(t * 0.12) * 8;
+  grad.addColorStop(0, `hsl(${hue}, 46%, 9%)`);
+  grad.addColorStop(1, `hsl(${hue - 6}, 52%, 4%)`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 }

@@ -3,25 +3,25 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-07";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-07";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-07";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-07";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-07";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-07";
-import { createAppState } from "./app-state.js?v=20260802-07";
-import { Camera } from "./camera/camera.js?v=20260802-07";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-07";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-07";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-07";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-07";
-import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-07";
-import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-07";
-import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-07";
-import { clearGradientCache } from "./hud/draw-utils.js?v=20260802-07";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-07";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-07";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-07";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-08";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-08";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-08";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-08";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-08";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-08";
+import { createAppState } from "./app-state.js?v=20260802-08";
+import { Camera } from "./camera/camera.js?v=20260802-08";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-08";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-08";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-08";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-08";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-08";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-08";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-08";
+import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-08";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-08";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-08";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-08";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -57,6 +57,7 @@ const els = {
   startButton: document.getElementById("start-button"),
   startPanel: document.getElementById("start-panel"),
   introSequence: document.getElementById("intro-sequence"),
+  introBotanical: document.getElementById("intro-botanical"),
   introText: document.getElementById("intro-text"),
   introAnnouncer: document.getElementById("intro-announcer"),
   advVersion: document.getElementById("adv-version"),
@@ -212,6 +213,10 @@ function applyModeVisibility() {
 
 function applyThemeUI() {
   const theme = applyTheme(state.themeIndex);
+  // Canvas cizim yardimcilari da ayni paletten beslenir; boylece renk
+  // yalnizca constants/themes.js icinde tanimli kalir.
+  setPalette(theme);
+  ambientScene.setTheme(theme);
   if (els.advVersion) els.advVersion.textContent = `v0.1 web | tema ${theme.name}`;
   return theme;
 }
@@ -1005,6 +1010,7 @@ function tick() {
       now,
       reducedMotion: prefersReducedMotion(),
       density: sceneWidth < 720 ? 0.6 : 1,
+      theme,   // tek renk kaynagi: constants/themes.js
     });
   }
   drawHandSkeletons(ctx, packets, theme, {
@@ -1151,6 +1157,11 @@ async function startExperienceOnce() {
   if (destroyed) return false;
   state.lifecycle = "STARTING_MEDIA";
   els.startOverlay.hidden = true;
+  // Intro katmanlari DOM'dan cikarilir: gorunmezken CSS animasyonlarinin
+  // calismaya devam etmesi bosuna is yaratir (brief §11/§20).
+  els.introBotanical?.remove();
+  document.querySelector(".intro-scrim")?.remove();
+  document.querySelector(".intro-grain")?.remove();
   // Baslangic ekrani (z-index 30) kapanmadan panel/kayit kontrolleri
   // tiklanamaz durumdaydi; artik yalnizca basladiktan sonra gorunurler.
   document.body.classList.add("started");
@@ -1200,6 +1211,8 @@ let introSkipped = false;
 function revealStartPanel() {
   if (!els.startPanel || els.startPanel.classList.contains("intro-ready")) return;
   els.introSequence?.classList.add("is-leaving");
+  // Cicek kaybolmaz, yalnizca geri cekilir (opaklik + hafif blur).
+  els.startOverlay?.classList.add("panel-visible");
   els.startPanel.classList.remove("intro-pending");
   els.startPanel.classList.add("intro-ready");
   els.startPanel.setAttribute("aria-hidden", "false");

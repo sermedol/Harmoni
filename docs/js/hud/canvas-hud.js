@@ -33,6 +33,14 @@ function approachValue(current, target, rate) {
   return current + (target - current) * rate;
 }
 
+/** #RRGGBB -> rgba(). Tema renkleriyle saydam gecis uretmek icin. */
+function hexToRgba(hex, alpha) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!match) return `rgba(232,201,204,${alpha})`;
+  const value = parseInt(match[1], 16);
+  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+}
+
 /** Dort yumusak vurus isareti. Sert yanip sonme yok: buyume + opaklik. */
 function drawBeat(ctx, x, y, bpm, theme, spacing, reducedMotion) {
   const duration = 60000 / Math.max(1, bpm);
@@ -141,7 +149,8 @@ function drawChord(ctx, v, theme, cx, top, maxWidth, compact) {
 
   // Metnin arkasinda cok dusuk yogunluklu isik - halo degil.
   if (smooth.chordFade > 0.2) {
-    glow(ctx, cx, top + size * 0.62, size * 2.4, "rgba(221,241,233,0.5)", 0.06 * smooth.chordFade);
+    // Renk temadan gelir; burada sabit yazilmaz.
+    glow(ctx, cx, top + size * 0.62, size * 2.4, hexToRgba(theme.primary, 0.42), 0.06 * smooth.chordFade);
   }
 
   text(ctx, shown, cx, top + size * 0.98 + 6, {

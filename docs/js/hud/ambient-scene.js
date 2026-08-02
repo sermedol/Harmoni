@@ -42,6 +42,24 @@ function seededRandom(seed) {
   };
 }
 
+/** #RRGGBB -> rgba(r,g,b,a). Renkler temadan gelir, burada sabit yazilmaz. */
+function rgba(hex, alpha) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!match) return `rgba(2,1,1,${alpha})`;
+  const value = parseInt(match[1], 16);
+  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+}
+
+const FALLBACK_PALETTE = {
+  deep: "#020101",
+  surface: "#3D0B0D",
+  raised: "#53080E",
+  botanicalMid: "#53080E",
+  petalDark: "#72090F",
+  petalBright: "#B21F29",
+  dust: "#E8C9CC",
+};
+
 export class AmbientScene {
   constructor() {
     this.width = 0;
@@ -52,6 +70,32 @@ export class AmbientScene {
     this.level = 0;
     this.lastTime = 0;
     this.density = 1;
+    this.palette = { ...FALLBACK_PALETTE };
+    this.paletteKey = "";
+  }
+
+  /**
+   * Aktif temayi baglar. Renk degisirse statik silueti yeniden uretir;
+   * boylece bu modulde sabit renk kalmaz ve tema tek kaynaktan yonetilir.
+   */
+  setTheme(theme) {
+    if (!theme) return;
+    const next = {
+      deep: theme.backgroundDeep || theme.bg || FALLBACK_PALETTE.deep,
+      surface: theme.backgroundSurface || theme.panel || FALLBACK_PALETTE.surface,
+      raised: theme.surfaceRaised || theme.panel2 || FALLBACK_PALETTE.raised,
+      botanicalMid: theme.botanicalMid || theme.panel2 || FALLBACK_PALETTE.botanicalMid,
+      petalDark: theme.petalDark || FALLBACK_PALETTE.petalDark,
+      petalBright: theme.petalBright || theme.secondary || FALLBACK_PALETTE.petalBright,
+      dust: theme.petalDust || theme.primary || FALLBACK_PALETTE.dust,
+    };
+    const key = Object.values(next).join("|");
+    if (key === this.paletteKey) return;
+    this.palette = next;
+    this.paletteKey = key;
+    // Siluet renge bagli onbelleklendigi icin tazelenmeli.
+    this.width = 0;
+    this.height = 0;
   }
 
   /**
@@ -89,24 +133,27 @@ export class AmbientScene {
     ctx.clearRect(0, 0, width, height);
     const random = seededRandom(913371);
     const shortest = Math.min(width, height);
+    const palette = this.palette;
 
-    // Kenar derinligi: merkez tamamen acik kalir.
+    // Kenar derinligi. Merkez TAMAMEN acik kalir: kullanicinin yuzu ve
+    // elleri bordo bir perdenin altinda kalmamali. Ic yaricap genis
+    // tutuldu ki guvenli alan korunsun.
     const vignette = ctx.createRadialGradient(
-      width / 2, height * 0.48, shortest * 0.28,
+      width / 2, height * 0.48, shortest * 0.34,
       width / 2, height * 0.5, Math.max(width, height) * 0.78
     );
-    vignette.addColorStop(0, "rgba(6,16,15,0)");
-    vignette.addColorStop(0.62, "rgba(6,16,15,0.28)");
-    vignette.addColorStop(1, "rgba(4,11,10,0.82)");
+    vignette.addColorStop(0, rgba(palette.deep, 0));
+    vignette.addColorStop(0.6, rgba(palette.surface, 0.22));
+    vignette.addColorStop(1, rgba(palette.deep, 0.8));
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
 
-    // Petrol yesili taban tonu yalnizca alt koselerde.
-    const floor = ctx.createLinearGradient(0, height * 0.72, 0, height);
-    floor.addColorStop(0, "rgba(17,48,43,0)");
-    floor.addColorStop(1, "rgba(17,48,43,0.4)");
+    // Mahogany taban tonu yalnizca alt koselerde - merkeze tasmaz.
+    const floor = ctx.createLinearGradient(0, height * 0.74, 0, height);
+    floor.addColorStop(0, rgba(palette.raised, 0));
+    floor.addColorStop(1, rgba(palette.raised, 0.34));
     ctx.fillStyle = floor;
-    ctx.fillRect(0, height * 0.72, width, height * 0.28);
+    ctx.fillRect(0, height * 0.74, width, height * 0.26);
 
     // Kose bitkileri. Merkezden uzak tutulur; govde ve yaprak sadelestirilmis.
     const clusters = [
@@ -130,9 +177,10 @@ export class AmbientScene {
     const tipY = flip ? baseY + height : baseY - height;
     const bend = dir * (18 + random() * 46) * scale;
 
+    const palette = this.palette;
     ctx.save();
     ctx.globalAlpha = 0.16 + random() * 0.2;
-    ctx.strokeStyle = "#0F2A25";
+    ctx.strokeStyle = palette.petalDark;
     ctx.lineWidth = 1.1 + random() * 1.6;
     ctx.lineCap = "round";
     ctx.beginPath();
@@ -140,19 +188,22 @@ export class AmbientScene {
     ctx.quadraticCurveTo(baseX + bend * 0.4, (baseY + tipY) / 2, baseX + bend, tipY);
     ctx.stroke();
 
-    // Ucta yumusak bir cicek/tohum basi.
+    // Ucta yumusak bir petal / tohum basi. Parlak terracotta cok seyrek
+    // kullanilir; atmosfer sakin kalmali.
     const headRadius = (2.2 + random() * 4.4) * scale;
     const tone = random();
-    ctx.globalAlpha = 0.13 + random() * 0.16;
-    ctx.fillStyle = tone > 0.82 ? "#E6B4C5" : tone > 0.62 ? "#DDD39E" : "#A8C983";
+    ctx.globalAlpha = 0.12 + random() * 0.14;
+    ctx.fillStyle = tone > 0.88 ? palette.petalBright
+      : tone > 0.62 ? palette.petalDark
+      : palette.botanicalMid;
     ctx.beginPath();
     ctx.arc(baseX + bend, tipY, headRadius, 0, Math.PI * 2);
     ctx.fill();
 
     // Ince isinsal tohumlar - yalnizca en buyuk basliklarda.
     if (headRadius > 4) {
-      ctx.globalAlpha = 0.1;
-      ctx.strokeStyle = "#DDF1E9";
+      ctx.globalAlpha = 0.09;
+      ctx.strokeStyle = palette.dust;
       ctx.lineWidth = 0.6;
       for (let ray = 0; ray < 6; ray++) {
         const angle = (ray / 6) * Math.PI * 2 + random();
@@ -177,31 +228,33 @@ export class AmbientScene {
    * @param {boolean} options.reducedMotion
    * @param {number} options.density
    */
-  draw(ctx, { width, height, level = 0, now = 0, reducedMotion = false, density = 1 }) {
+  draw(ctx, { width, height, level = 0, now = 0, reducedMotion = false, density = 1, theme = null }) {
+    if (theme) this.setTheme(theme);
     this.resize(width, height, density);
 
-    // Ses seviyesi ortam isigini en fazla %15 degistirir; dusus yavas
-    // olsun diye asimetrik yumusatma.
+    // Ses seviyesi ortam isigini en fazla %12 degistirir. Bordo palette
+    // daha fazlasi vokalle pompalayan bir kirmizi parlama uretiyordu.
     const target = clamp01(level);
-    this.level = approach(this.level, target, target > this.level ? 0.22 : 0.05);
-    const lift = this.level * 0.15;
+    this.level = approach(this.level, target, target > this.level ? 0.2 : 0.05);
+    const lift = this.level * 0.12;
 
     const previousAlpha = ctx.globalAlpha;
 
     if (this.silhouette) {
-      ctx.globalAlpha = previousAlpha * (0.9 + lift * 0.6);
+      ctx.globalAlpha = previousAlpha * (0.9 + lift * 0.5);
       ctx.drawImage(this.silhouette, 0, 0, width, height);
     }
 
-    // Merkezde cok hafif kuvars isigi: ses geldikce guclenir.
+    // Merkezde cok hafif sicak isik: ses geldikce guclenir. Yogunlugu
+    // dusuk tutuldu ki cilt tonlarina kirmizi bir perde binmesin.
     if (this.level > 0.02) {
-      ctx.globalAlpha = previousAlpha * this.level * 0.14;
+      ctx.globalAlpha = previousAlpha * this.level * 0.1;
       const centre = ctx.createRadialGradient(
         width / 2, height * 0.46, 0,
         width / 2, height * 0.46, Math.min(width, height) * 0.42
       );
-      centre.addColorStop(0, "rgba(221,241,233,0.5)");
-      centre.addColorStop(1, "rgba(221,241,233,0)");
+      centre.addColorStop(0, rgba(this.palette.dust, 0.4));
+      centre.addColorStop(1, rgba(this.palette.dust, 0));
       ctx.fillStyle = centre;
       ctx.fillRect(0, 0, width, height);
     }
@@ -218,7 +271,7 @@ export class AmbientScene {
     this.lastTime = now;
     // Ses geldikce parcaciklar biraz hizlanir - "ortam uyaniyor" hissi.
     const speedScale = 1 + this.level * 0.5;
-    ctx.fillStyle = "#DDF1E9";
+    ctx.fillStyle = this.palette.dust;
 
     for (const particle of this.pollen) {
       particle.y -= particle.speed * delta * speedScale;

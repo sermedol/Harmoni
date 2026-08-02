@@ -151,27 +151,42 @@ body:not(.started) :is(.panel-toggle, .camera-active, .hand-status, .rec-badge, 
 .camera-active { top: var(--hud-top); }
 .hand-status { top: calc(var(--hud-top) + 36px); }
 
-.camera-active > span:first-child,
+/* Kamera aktif: gizlilik gostergesi. Renk noktasi DEGIL kucuk bir kamera
+   ikonu kullanilir - palet tamamen kirmizi ailesinde oldugu icin "aktif"
+   durumu renkle anlatilamaz. Anlami ikon + "Kamera aktif" metni tasir. */
+.camera-active svg {
+  width: 14px;
+  height: 11px;
+  flex: none;
+  color: var(--color-text-primary);
+}
+
+/* El durumu noktasi. Renk tek basina yeterli degil; metin de degisiyor
+   ("El araniyor" / "2 el algilandi" / "El takibi yuklenemedi") ve
+   bulunamadi durumunda nokta ici bos halkaya donuyor. */
 .hand-status-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   flex: none;
   border-radius: 50%;
-  background: var(--color-text-disabled);
-  transition: background var(--dur-panel) var(--ease), box-shadow var(--dur-panel) var(--ease);
-}
-.camera-active > span:first-child {
-  background: var(--color-moss);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-moss) 18%, transparent);
+  border: 1.5px solid var(--color-text-disabled);
+  background: transparent;
+  transition: background var(--dur-panel) var(--ease),
+              border-color var(--dur-panel) var(--ease),
+              box-shadow var(--dur-panel) var(--ease);
 }
 .hand-status.tracking { color: var(--color-text-primary); }
 .hand-status.tracking .hand-status-dot {
-  background: var(--color-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent);
+  /* El bulundu: nokta DOLU. */
+  background: var(--color-ready);
+  border-color: var(--color-ready);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ready) 16%, transparent);
 }
 .hand-status.failed { color: var(--color-danger); }
 .hand-status.failed .hand-status-dot {
+  /* Hata: nokta dolu ve terracotta; ayrica metin hatayi soyluyor. */
   background: var(--color-danger);
+  border-color: var(--color-danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
 }
 
@@ -252,7 +267,7 @@ body:not(.started) :is(.panel-toggle, .camera-active, .hand-status, .rec-badge, 
   z-index: calc(var(--z-drawer) - 1);
   border: 0;
   padding: 0;
-  background: rgba(4, 11, 10, 0.5);
+  background: rgba(2, 1, 1, 0.58);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   opacity: 0;
@@ -554,7 +569,7 @@ kbd {
   padding: var(--space-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-glass);
-  background: rgba(4, 11, 10, 0.45);
+  background: rgba(2, 1, 1, 0.5);
   color: var(--color-text-secondary);
   font-family: ui-monospace, "Cascadia Mono", monospace;
   font-size: 9.5px;
@@ -593,7 +608,7 @@ kbd {
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
-  background: rgba(4, 11, 10, 0.72);
+  background: rgba(2, 1, 1, 0.78);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: overlay-in var(--dur-overlay) var(--ease) both;
@@ -761,33 +776,93 @@ kbd {
   background:
     radial-gradient(120% 90% at 50% 42%,
       color-mix(in srgb, var(--color-bg-petrol) 45%, transparent) 0%, transparent 58%),
-    radial-gradient(70% 55% at 50% 46%, rgba(221, 241, 233, 0.07) 0%, transparent 62%),
-    linear-gradient(180deg, var(--color-bg-deep), #040B0A);
+    radial-gradient(70% 55% at 50% 46%, rgba(178, 31, 41, 0.10) 0%, transparent 62%),
+    linear-gradient(180deg, var(--color-bg-deep), #020101);
 }
 
-/* Kenar bitki golgeleri - CSS ile uretilir, raster gorsel yok. */
-.start-overlay::before,
-.start-overlay::after {
-  content: "";
+/* --- Botanik kompozisyon ---
+   Ozgun SVG (index.html icinde). Ana cicek kutlesi alt-sagda; merkez
+   daktilo metni icin bos. Hareket YALNIZCA transform ve opacity ile
+   yapilir: ikinci bir requestAnimationFrame dongusu yoktur. */
+.intro-botanical {
   position: absolute;
-  bottom: 0;
-  width: 42%;
-  height: 58%;
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
-  background:
-    radial-gradient(closest-side at 30% 100%, rgba(17, 48, 43, 0.55), transparent 70%),
-    radial-gradient(closest-side at 62% 92%, rgba(10, 25, 22, 0.5), transparent 72%);
-  filter: blur(14px);
+  /* Acilis: karanliktan yavasca gorunur olur. */
+  animation: botanical-reveal 2600ms var(--ease) both;
 }
-.start-overlay::before { left: -6%; }
-.start-overlay::after { right: -6%; transform: scaleX(-1); }
+.intro-botanical svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Kutle merkezden uzaklastirilir: daktilo metninin arkasinda karmasik
+     petal ayrintisi kalmamali. */
+  transform-origin: 78% 88%;
+  scale: 1.12;
+  translate: 5% 8%;
+  /* Cok yavas nefes: 16 sn, ani yon degisimi yok. */
+  animation: botanical-breathe 16s ease-in-out 2.6s infinite;
+}
+@keyframes botanical-reveal {
+  from { opacity: 0; filter: blur(12px); transform: scale(1.02); }
+  to   { opacity: 1; filter: blur(1px); transform: scale(1.05); }
+}
+@keyframes botanical-breathe {
+  0%, 100% { transform: scale(1) translate3d(0, 0, 0); }
+  50%      { transform: scale(1.035) translate3d(-0.6%, -0.8%, 0); }
+}
+
+/* Ic petallerin cok hafif isik degisimi - daktiloyla yarismaz. */
+.botanical-bloom { animation: bloom-warm 18s ease-in-out 2.6s infinite; }
+@keyframes bloom-warm {
+  0%, 100% { opacity: 0.9; }
+  46%      { opacity: 1; }
+}
+
+/* Merkez okunabilirlik perdesi: daktilo metni her zaman net kalir.
+   Keskin kenari yok, cicegi tamamen ortmez. */
+.intro-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(58% 46% at 50% 44%,
+    rgba(2, 1, 1, 0.78) 0%,
+    rgba(2, 1, 1, 0.62) 42%,
+    rgba(2, 1, 1, 0.22) 72%,
+    rgba(2, 1, 1, 0) 100%);
+}
+
+/* Cok dusuk yogunluklu grain. Hareketsiz: sabit bir doku, animasyon yok. */
+.intro-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: repeating-conic-gradient(
+    var(--color-text-primary) 0% 0.0009%, transparent 0% 0.0035%);
+  background-size: 180px 180px;
+}
+
+/* Panel goruntulenirken cicek geride kalir ama kaybolmaz. */
+.start-overlay.panel-visible .intro-botanical {
+  opacity: 0.78;
+  filter: blur(2.5px);
+  transition: opacity var(--dur-overlay) var(--ease), filter var(--dur-overlay) var(--ease);
+}
 
 /* --- Intro --- */
+/* DIKKAT: grid + place-items kullanilirsa #intro-text ile .type-cursor ayri
+   grid hucrelerine duser ve cursor metinden kopar. Ikisi ayni satirda,
+   temel cizgide hizali kalmali. */
 .intro-sequence {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-5);
   text-align: center;
 }
@@ -796,7 +871,11 @@ kbd {
   font-size: clamp(1.75rem, 5.5vw, 2.75rem);
   font-weight: 400;
   color: var(--color-text-primary);
-  text-shadow: 0 0 24px rgba(221, 241, 233, 0.14);
+  /* Iki katmanli, cok dusuk yogunluklu isik. Buyuk beyaz halo yok;
+     okunabilirlik perdeyle saglanir, golgeyle degil. */
+  text-shadow:
+    0 0 1px rgba(246, 238, 238, 0.4),
+    0 0 20px rgba(178, 31, 41, 0.18);
 }
 /* Cursor sert terminal blogu degil: ince, yumusak parlayan cizgi. */
 .type-cursor {
@@ -807,7 +886,7 @@ kbd {
   vertical-align: -0.12em;
   border-radius: 2px;
   background: var(--color-quartz);
-  box-shadow: 0 0 10px rgba(221, 241, 233, 0.6);
+  box-shadow: 0 0 10px rgba(246, 238, 238, 0.55);
   animation: cursor-breathe 1.15s var(--ease) infinite;
 }
 @keyframes cursor-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.18; } }
@@ -834,7 +913,7 @@ kbd {
   border-radius: var(--radius-xl);
   border: 1px solid var(--color-border-glass);
   background: color-mix(in srgb, var(--color-bg-forest) 82%, transparent);
-  box-shadow: var(--shadow-lift), inset 0 1px 0 rgba(231, 245, 238, 0.08);
+  box-shadow: var(--shadow-lift), inset 0 1px 0 rgba(246, 238, 238, 0.07);
   backdrop-filter: blur(24px) saturate(1.05);
   -webkit-backdrop-filter: blur(24px) saturate(1.05);
   text-align: left;
@@ -1204,7 +1283,7 @@ body.started .start-signature { display: none; }
   margin: 0;
   padding: var(--space-3);
   overflow: auto;
-  background: rgba(4, 11, 10, 0.9);
+  background: rgba(2, 1, 1, 0.92);
   color: var(--color-moss);
   font-family: ui-monospace, monospace;
   font-size: 10.5px;
@@ -1294,6 +1373,22 @@ body.started .start-signature { display: none; }
   .start-panel { width: 92vw; padding: var(--space-5); gap: var(--space-3); }
   .hud-advanced { padding: 76px var(--space-3) var(--space-3); }
   .adv-row, .adv-bottom-deck { flex-direction: column; }
+
+  /* Botanik mobilde farkli yerlesir: masaustu kompozisyonunun kucultulmus
+     hali degil. Kutle asagi kaydirilir ve buyutulur ki dar ekranda da
+     kenarda kalsin, merkez metin alani acik kalsin. */
+  .intro-botanical svg {
+    transform-origin: 70% 92%;
+    scale: 1.5;
+    translate: 6% 16%;
+  }
+  .intro-scrim {
+    background: radial-gradient(72% 40% at 50% 40%,
+      rgba(2, 1, 1, 0.82) 0%,
+      rgba(2, 1, 1, 0.66) 46%,
+      rgba(2, 1, 1, 0.24) 76%,
+      rgba(2, 1, 1, 0) 100%);
+  }
 }
 
 /* Cok dar telefon: tek sutun. */
@@ -1377,6 +1472,16 @@ body.started .start-signature { display: none; }
   .rec-dot { animation: none; }
   .intro-sequence { display: none; }
   .start-panel.intro-pending { opacity: 1; pointer-events: auto; }
+  /* Cicek hareketsiz kalir ama GORUNUR olur: son duruma dogrudan gecer. */
+  .intro-botanical,
+  .intro-botanical svg,
+  .botanical-bloom {
+    animation: none;
+    opacity: 1;
+  }
+  .intro-botanical { filter: blur(1px); }
+  .intro-botanical svg { transform: scale(1.05); }
+  .intro-grain { display: none; }
   .vocal-mic-ring,
   .vocal-meter-fill,
   .vocal-meter-peak { transition: none; }

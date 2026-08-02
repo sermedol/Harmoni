@@ -75,30 +75,38 @@ export function drawHandSkeletons(ctx, hands, theme, options = {}) {
     // 260 ms'lik yumusak aciliş; takip dalgalandiginda sert yanip sonme olmaz.
     const age = Math.min(1, (now - hand.appearedAt) / 260);
     const fade = options.reducedMotion ? 1 : age * age * (3 - 2 * age);
-    // Sag ve sol yalnizca ton farkiyla ayrilir: kuvars ve yosun.
-    const color = hand.label === "RIGHT" ? theme.primary : theme.secondary;
 
-    // Cok dusuk yogunluklu dis hat - "kuvars" hissini veren katman.
-    ctx.globalAlpha = 0.16 * fade;
-    ctx.strokeStyle = color;
+    // IKI EL DE ayni soluk gul tonunda cizilir. Onceki surumde sol el
+    // tamamen terracotta idi; bu, kamera uzerinde kalin kirmizi bir el
+    // gibi okunuyordu. Sag/sol ayrimi yalnizca cok hafif bir opaklik
+    // farkiyla verilir, renkle degil.
+    const lineColor = theme.handLine || theme.primary;
+    const jointColor = theme.handJoint || theme.secondary;
+    const sideAlpha = hand.label === "RIGHT" ? 1 : 0.88;
+
+    // Cok dusuk yogunluklu dis hat - malzeme hissi.
+    ctx.globalAlpha = 0.14 * fade * sideAlpha;
+    ctx.strokeStyle = lineColor;
     ctx.lineWidth = 4.5;
     strokeBones(ctx, hand.landmarks);
 
     // Ince ic cizgi.
-    ctx.globalAlpha = 0.85 * fade;
+    ctx.globalAlpha = 0.82 * fade * sideAlpha;
     ctx.lineWidth = 1.15;
     strokeBones(ctx, hand.landmarks);
 
-    // Eklemler: kucuk, ic isikli.
-    ctx.fillStyle = color;
+    // Eklemler: kucuk terracotta ic isik - tek renk vurgusu burada.
     for (const index of JOINTS) {
-      ctx.globalAlpha = 0.5 * fade;
+      ctx.fillStyle = jointColor;
+      ctx.globalAlpha = 0.55 * fade;
       dot(ctx, hand.landmarks[index], 1.9);
     }
     for (const index of TIPS) {
-      ctx.globalAlpha = 0.22 * fade;
+      ctx.fillStyle = jointColor;
+      ctx.globalAlpha = 0.24 * fade;
       dot(ctx, hand.landmarks[index], 5.2);
-      ctx.globalAlpha = 0.95 * fade;
+      ctx.fillStyle = lineColor;
+      ctx.globalAlpha = 0.95 * fade * sideAlpha;
       dot(ctx, hand.landmarks[index], 2.2);
     }
 

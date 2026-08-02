@@ -1,8 +1,8 @@
 /* =========================================================================
    HARMONI — TASARIM TOKENLARI
-   Gorsel yon: "Biophilic Instrument"
-   Karanlik orman / petrol yesili atmosfer, kuvars ve yosun malzemeleri,
-   merkezde tek guclu odak, kenarlarda derinlik.
+   Gorsel yon: "Burgundy Botanical Instrument"
+   Karanlik bordo / aubergine atmosfer, botanik derinlik, merkezde
+   kontrollu negatif alan.
 
    Bu dosya YALNIZCA token, temel sifirlama ve paylasilan ilkel bilesenleri
    tanimlar. Yerlesim ve bilesen kurallari layout.css icindedir.
@@ -11,34 +11,47 @@
    ========================================================================= */
 
 :root {
+  /* --- Palet (renk kartindaki alti ana ton) --- */
+  --color-night-rider: #020101;      /* ana zemin, en koyu overlay */
+  --color-aubergine: #3D0B0D;        /* ana panel yuzeyi */
+  --color-mahogany: #53080E;         /* yukseltilmis kontroller */
+  --color-dark-burgundy: #72090F;    /* aktif sinir, ince cizgi */
+  --color-pohutukawa: #930510;       /* ana vurgu, aktif deger */
+  --color-terracotta: #B21F29;       /* sinirli parlak vurgu, kayit */
+
   /* --- Zemin katmanlari --- */
-  --color-bg-deep: #06100F;
-  --color-bg-forest: #0A1916;
-  --color-bg-petrol: #11302B;
+  --color-bg-deep: var(--color-night-rider);
+  --color-bg-surface: var(--color-aubergine);
+  --color-bg-raised: var(--color-mahogany);
 
   /* --- Cam yuzeyler --- */
-  --color-surface-glass: rgba(224, 241, 234, 0.075);
-  --color-surface-glass-strong: rgba(224, 241, 234, 0.12);
-  --color-border-glass: rgba(231, 245, 238, 0.16);
-  --color-border-glass-strong: rgba(231, 245, 238, 0.28);
+  --color-surface-glass: rgba(61, 11, 13, 0.42);
+  --color-surface-glass-strong: rgba(83, 8, 14, 0.62);
+  --color-border-glass: rgba(246, 238, 238, 0.12);
+  --color-border-glass-strong: rgba(178, 31, 41, 0.38);
 
   /* --- Metin --- */
-  --color-text-primary: #F3F1E8;
-  --color-text-secondary: #A9B7B0;
-  --color-text-disabled: #71817B;
+  --color-text-primary: #F6EEEE;
+  --color-text-secondary: #CDBABC;
+  --color-text-disabled: #917A7D;
 
-  /* --- Malzemeler --- */
-  --color-quartz: #DDF1E9;
-  --color-moss: #A8C983;
-  --color-blush: #E6B4C5;
-  --color-flower: #DDD39E;
+  /* --- Malzemeler ---
+     Koyu bordolar YUZEY ve SINIR rolundedir. Kamera uzerine cizilen ince
+     cizgi ve kucuk metin icin yeterli kontrast vermezler; onlar icin acik
+     gul tonlari kullanilir. */
+  --color-rose: #E8C9CC;             /* HUD cizgileri, okunabilir vurgu */
+  --color-rose-soft: #D9989E;        /* kucuk meta metinler */
+  --color-petal: var(--color-terracotta);
 
-  /* --- Durum --- */
-  --color-success: #B8E68B;
-  --color-warning: #E5C276;
-  --color-danger: #F17178;
+  /* --- Durum ---
+     Palet tamamen kirmizi ailesinde oldugu icin durumlar YALNIZCA renkle
+     ayirt edilemez. Her durum ayrica metin ve bicim (dolu nokta / halka /
+     REC etiketi) ile anlatilir. */
+  --color-ready: #E8C9CC;
+  --color-warning: #C9776B;
+  --color-danger: var(--color-terracotta);
 
-  --color-shadow: rgba(1, 8, 7, 0.6);
+  --color-shadow: rgba(2, 1, 1, 0.72);
 
   /* --- Tipografi ---
      Harici font yuklenmiyor: GitHub Pages'te build adimi yok, hotlink
@@ -102,21 +115,29 @@
 
   /* =======================================================================
      ESKI AD KOPRUSU
-     Onceki surumden kalmis olabilecek kurallar bu adlari kullaniyordu.
-     Yeni palete esleniyorlar; boylece gozden kacan tek bir kural bile
-     bordo bir renk geri getiremez.
+     Onceki surumden kalmis kurallar bu adlari kullaniyordu. Yeni palete
+     esleniyorlar; boylece gozden kacan tek bir kural bile eski yesil
+     tonlari geri getiremez.
      ======================================================================= */
   --bg: var(--color-bg-deep);
-  --panel: var(--color-bg-forest);
-  --panel2: var(--color-bg-petrol);
+  --panel: var(--color-bg-surface);
+  --panel2: var(--color-bg-raised);
   --text: var(--color-text-primary);
   --muted: var(--color-text-secondary);
-  --primary: var(--color-quartz);
-  --secondary: var(--color-moss);
-  --accent: var(--color-blush);
+  --primary: var(--color-rose);
+  --secondary: var(--color-terracotta);
+  --accent: var(--color-rose-soft);
   --danger: var(--color-danger);
-  --success: var(--color-success);
+  --success: var(--color-ready);
   --warning: var(--color-warning);
+  /* Eski yesil malzeme adlari - artik bordo paletine bakar. */
+  --color-quartz: var(--color-rose);
+  --color-moss: var(--color-rose-soft);
+  --color-blush: var(--color-rose-soft);
+  --color-flower: var(--color-terracotta);
+  --color-success: var(--color-ready);
+  --color-bg-forest: var(--color-bg-surface);
+  --color-bg-petrol: var(--color-bg-raised);
   --theme-dark: 1;
 }
 
@@ -203,16 +224,16 @@ button { -webkit-tap-highlight-color: transparent; }
    okunabilirligi dusurmez. Her metne degil, tek odak metnine uygulanir. */
 .lit {
   text-shadow:
-    0 0 1px rgba(221, 241, 233, 0.35),
-    0 0 18px rgba(221, 241, 233, 0.12);
+    0 0 1px rgba(246, 238, 238, 0.4),
+    0 0 20px rgba(178, 31, 41, 0.18);
 }
 
 /* Kamera goruntusu uzerindeki metinler icin agir golge yerine cok hafif
    bir karartma perdesi. */
 .scrim {
   background: linear-gradient(180deg,
-    rgba(6, 16, 15, 0.55) 0%,
-    rgba(6, 16, 15, 0) 100%);
+    rgba(2, 1, 1, 0.58) 0%,
+    rgba(2, 1, 1, 0) 100%);
 }
 
 /* Ekran okuyucuya acik, gorsel olarak gizli. */
