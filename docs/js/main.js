@@ -3,25 +3,25 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-06";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-06";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-06";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-06";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-06";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-06";
-import { createAppState } from "./app-state.js?v=20260802-06";
-import { Camera } from "./camera/camera.js?v=20260802-06";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-06";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-06";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-06";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-06";
-import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-06";
-import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-06";
-import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-06";
-import { clearGradientCache } from "./hud/draw-utils.js?v=20260802-06";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-06";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-06";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-06";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-07";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-07";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-07";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-07";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-07";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-07";
+import { createAppState } from "./app-state.js?v=20260802-07";
+import { Camera } from "./camera/camera.js?v=20260802-07";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-07";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-07";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-07";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-07";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-07";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-07";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-07";
+import { clearGradientCache } from "./hud/draw-utils.js?v=20260802-07";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-07";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-07";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-07";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;

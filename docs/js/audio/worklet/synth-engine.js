@@ -129,21 +129,39 @@ export class SynthEngine {
     const tonic = degrees[0];
     const guclu = degrees.length > 4 ? degrees[4] : degrees[degrees.length - 1];
 
+    // HATA DUZELTMESI: pad (durak/guclu drone'u) ve baglama, katman durumu
+    // KONTROL EDILMEDEN tetikleniyordu. Sonuc olarak makam modunda
+    // "Yalniz piyano" secilse veya PAD/BAGLAMA elle kapatilsa bile drone ve
+    // baglama duyulmaya devam ediyordu. Ayrica makam modunda PIANO icin hic
+    // dal yoktu; yani "yalniz piyano" pratikte "piyano yok, pad + baglama var"
+    // anlamina geliyordu. Regresyon testi: tests/web/layer-gating.test.js
     if (chordChanged && (step === 0 || step === 4)) {
-      this.trigger(tonic - 12.0, "pad", phraseActive ? 0.13 : 0.19, beatSeconds * 7.4, -0.35);
-      this.trigger(guclu - 12.0, "pad", phraseActive ? 0.10 : 0.14, beatSeconds * 7.4, 0.35);
+      if (layers.has("PAD")) {
+        this.trigger(tonic - 12.0, "pad", phraseActive ? 0.13 : 0.19, beatSeconds * 7.4, -0.35);
+        this.trigger(guclu - 12.0, "pad", phraseActive ? 0.10 : 0.14, beatSeconds * 7.4, 0.35);
+      }
       if (layers.has("BASS")) this.trigger(tonic - 24.0, "bass", phraseActive ? 0.28 : 0.36, beatSeconds * 3.6, -0.05);
       if (layers.has("STRINGS")) {
         for (const note of [tonic, guclu]) this.trigger(note, "strings", 0.11, beatSeconds * 3.6, 0.0);
       }
     }
 
-    const activeSteps = phraseActive ? [0, 3, 5] : [0, 1, 3, 4, 5, 6];
-    if (activeSteps.includes(step)) {
-      const pattern = [0, 2, 1, 4, 3, 2, 1, 0];
-      const note = degrees[pattern[step] % degrees.length];
-      const velocity = phraseActive ? 0.29 : 0.38;
-      this.trigger(note, "baglama", velocity, beatSeconds * 1.1 * articulationScale, -0.1 + 0.2 * (step / 7.0));
+    // Makamda piyano Bati usulu surekli ucluler basmaz: durak uzerinde acik
+    // beslli seyrek bir pedal tutar. Boylece makam perdeleriyle cakismaz.
+    if (layers.has("PIANO") && (step === 0 || step === 4)) {
+      const velocity = phraseActive ? 0.16 : 0.24;
+      this.trigger(tonic - 12.0, "piano_soft", velocity, beatSeconds * 3.2, -0.12);
+      if (!phraseActive) this.trigger(guclu - 12.0, "piano_soft", velocity * 0.72, beatSeconds * 3.0, 0.12);
+    }
+
+    if (layers.has("BAGLAMA")) {
+      const activeSteps = phraseActive ? [0, 3, 5] : [0, 1, 3, 4, 5, 6];
+      if (activeSteps.includes(step)) {
+        const pattern = [0, 2, 1, 4, 3, 2, 1, 0];
+        const note = degrees[pattern[step] % degrees.length];
+        const velocity = phraseActive ? 0.29 : 0.38;
+        this.trigger(note, "baglama", velocity, beatSeconds * 1.1 * articulationScale, -0.1 + 0.2 * (step / 7.0));
+      }
     }
 
     if (layers.has("NEY") && (step === 2 || step === 6) && !phraseActive) {
