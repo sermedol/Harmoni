@@ -26,13 +26,28 @@ export function fitContain(srcW, srcH, dstW, dstH) {
 
 export function sceneSizeForViewport(viewportWidth, viewportHeight) {
   const portrait = viewportHeight > viewportWidth * 1.12;
-  if (!portrait) return { width: 1280, height: 720, portrait: false };
+  const ratio = viewportHeight / Math.max(1, viewportWidth);
+
+  if (!portrait) {
+    // Yatayda da oran viewport'tan gelir. Onceki surum her zaman 1280x720
+    // donduruyordu; 16:10 dizustu ekranlarinda (1440x900, 1920x1200,
+    // 2560x1600) sahne orani kutu oraniyla tutmadigi icin object-fit:cover
+    // canvas'in sag ve sol kenarini kirpiyordu - HUD'un tempo blogu ve
+    // kimlik blogu kismen ekran disinda kaliyordu.
+    let width = 1280;
+    let height = Math.round(width * ratio);
+    // Cok genis/alcak ekranlarda mantiksal yukseklik asiri kuculmesin.
+    if (height < 560) {
+      height = 560;
+      width = Math.round(height / ratio);
+    }
+    return { width, height, portrait: false };
+  }
   // Sahne orani viewport oraniyla BIREBIR ayni olmali. Onceki surumde oran
   // 1.35-2.25 arasina kelepcelenmisti; bu araligin disindaki ekranlarda
   // (kucuk tablet, bolunmus ekran, cok uzun telefon) canvas ile CSS kutusu
   // farkli oranlara sahip oluyordu ve object-fit:cover HUD'un ust/alt
   // kenarini kirpiyordu. Artik yukseklik sinirlaniyor, oran degil.
-  const ratio = viewportHeight / Math.max(1, viewportWidth);
   let height = Math.min(1600, Math.round(720 * ratio));
   let width = Math.round(height / ratio);
   if (width < 480) {

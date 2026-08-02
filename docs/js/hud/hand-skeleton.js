@@ -1,22 +1,35 @@
-// harmoni.py HUDRenderer._draw_hand_skeletons - Canvas2D portu.
+// El iskeleti - kuvars malzemesi.
+//
+// Malzeme hedefi: ince kuvars cizgileri, yari saydam kirik beyaz / acik
+// yesil, eklemlerde kucuk ic isik, cok dusuk yogunluklu glow.
+//
+// KULLANILMAYANLAR (ve nedenleri)
+// - Kalin neon cizgi ve parlak beyaz: kamerayi ezip elin kendisini
+//   gorunmez kiliyordu.
+// - Her elde farkli guclu renk: ikinci bir bilgi katmani gibi okunuyordu;
+//   artik sag/sol yalnizca cok hafif ton farkiyla ayriliyor.
+// - Buyuk daireler ve etiket balonu: oyun arayuzu hissi veriyordu.
+//   Etiket kaldirildi; jest geri bildirimi canvas-hud icinde tek yerden,
+//   kisa sureli gosteriliyor.
 import { HAND_CONNECTIONS } from "../camera/hand-tracker.js";
 
 const WRIST = 0, INDEX_MCP = 5, MIDDLE_MCP = 9, RING_MCP = 13, PINKY_MCP = 17;
 const THUMB_TIP = 4, INDEX_TIP = 8, MIDDLE_TIP = 12, RING_TIP = 16, PINKY_TIP = 20;
+const JOINTS = [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP];
+const TIPS = [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP];
+
 const displayTracks = new Map();
 
-// Bu katman YALNIZCA gorsel ara deger uretir: tespit her karede calismayabilir
-// (processEvery) ama sahne 60fps cizilir, arada iskelet basamakli gorunmesin
-// diye hedefe yumusak yaklasilir.
+// Bu katman YALNIZCA gorsel ara deger uretir: tespit her karede
+// calismayabilir (processEvery) ama sahne 60fps cizilir, arada iskelet
+// basamakli gorunmesin diye hedefe yumusak yaklasilir.
 //
-// Burada da esik tabanli olu bolge (distance <= 4 -> dondur) kaldirildi.
-// Gurultu bastirma artik tek bir yerde, hand-tracker.js icindeki 1€
-// filtresinde yapiliyor. Iki katmanda birden esik uygulamak hem gecikmeyi
-// ikiye katliyor hem de iki ayri stick-slip kaynagi yaratiyordu.
+// Esik tabanli olu bolge burada KULLANILMAZ. Gurultu bastirma tek yerde,
+// hand-tracker.js icindeki 1€ filtresinde yapiliyor. Iki katmanda birden
+// esik uygulamak hem gecikmeyi ikiye katliyor hem de ikinci bir
+// stick-slip kaynagi yaratiyordu.
 export function interpolateLandmark(previous, target) {
   const distance = Math.hypot(target[0] - previous[0], target[1] - previous[1]);
-  // Surekli fonksiyon: mesafe buyudukce yaklasma orani puruzsuz artar,
-  // hicbir noktada sicrama ya da donma yok.
   const alpha = Math.min(0.85, 0.22 + distance / 120);
   return [previous[0] + (target[0] - previous[0]) * alpha, previous[1] + (target[1] - previous[1]) * alpha];
 }
@@ -31,97 +44,131 @@ function displayHand(source, now) {
     palmIndices.reduce((sum, index) => sum + landmarks[index][0], 0) / palmIndices.length,
     palmIndices.reduce((sum, index) => sum + landmarks[index][1], 0) / palmIndices.length,
   ];
-  displayTracks.set(source.label, { landmarks, lastSeen: now });
-  return { ...source, landmarks, palmCenter };
+  // Yeni algilanan el aniden belirmesin: kisa bir aciliş.
+  const appearedAt = previous?.appearedAt ?? now;
+  displayTracks.set(source.label, { landmarks, lastSeen: now, appearedAt });
+  return { ...source, landmarks, palmCenter, appearedAt };
 }
 
-function gestureLabel(gesture) {
-  const replaced = gesture.replace("OPEN_HAND", "Acik").replace("FIST", "Kapali").replace("PEACE", "Peace");
-  return replaced.charAt(0).toUpperCase() + replaced.slice(1).toLowerCase();
-}
-
-function roundedRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-export function drawHandSkeletons(ctx, hands, theme) {
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Array} hands
+ * @param {object} theme
+ * @param {object} [options]
+ * @param {number} [options.pinchAmount] 0-1, PINCH jestinde reverb miktari
+ * @param {boolean} [options.reducedMotion]
+ */
+export function drawHandSkeletons(ctx, hands, theme, options = {}) {
   const now = performance.now();
   const renderedHands = hands.map((hand) => displayHand(hand, now));
   const visibleLabels = new Set(hands.map((hand) => hand.label));
   for (const [label, track] of displayTracks) {
     if (!visibleLabels.has(label) && now - track.lastSeen > 220) displayTracks.delete(label);
   }
+  if (!renderedHands.length) return;
+
   ctx.save();
-  ctx.globalAlpha = theme.dark ? 0.8 : 0.72;
-  ctx.lineWidth = theme.dark ? 1 : 2;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
   for (const hand of renderedHands) {
+    // 260 ms'lik yumusak aciliş; takip dalgalandiginda sert yanip sonme olmaz.
+    const age = Math.min(1, (now - hand.appearedAt) / 260);
+    const fade = options.reducedMotion ? 1 : age * age * (3 - 2 * age);
+    // Sag ve sol yalnizca ton farkiyla ayrilir: kuvars ve yosun.
     const color = hand.label === "RIGHT" ? theme.primary : theme.secondary;
+
+    // Cok dusuk yogunluklu dis hat - "kuvars" hissini veren katman.
+    ctx.globalAlpha = 0.16 * fade;
     ctx.strokeStyle = color;
+    ctx.lineWidth = 4.5;
+    strokeBones(ctx, hand.landmarks);
+
+    // Ince ic cizgi.
+    ctx.globalAlpha = 0.85 * fade;
+    ctx.lineWidth = 1.15;
+    strokeBones(ctx, hand.landmarks);
+
+    // Eklemler: kucuk, ic isikli.
     ctx.fillStyle = color;
-    ctx.lineWidth = theme.dark ? 1 : 2;
-
-    for (const [a, b] of HAND_CONNECTIONS) {
-      ctx.beginPath();
-      ctx.moveTo(hand.landmarks[a][0], hand.landmarks[a][1]);
-      ctx.lineTo(hand.landmarks[b][0], hand.landmarks[b][1]);
-      ctx.stroke();
+    for (const index of JOINTS) {
+      ctx.globalAlpha = 0.5 * fade;
+      dot(ctx, hand.landmarks[index], 1.9);
     }
-    for (const idx of [WRIST, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]) {
-      ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    for (const idx of [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP]) {
-      ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(hand.landmarks[idx][0], hand.landmarks[idx][1], 6, 0, Math.PI * 2);
-      ctx.stroke();
+    for (const index of TIPS) {
+      ctx.globalAlpha = 0.22 * fade;
+      dot(ctx, hand.landmarks[index], 5.2);
+      ctx.globalAlpha = 0.95 * fade;
+      dot(ctx, hand.landmarks[index], 2.2);
     }
 
-    const [cx, cy] = hand.palmCenter;
-    let label = hand.label === "RIGHT" ? "Sag el" : "Sol el";
-    label += " - " + gestureLabel(hand.gesture);
-    ctx.font = "12px sans-serif";
-    const tw = ctx.measureText(label).width;
-    roundedRect(ctx, cx - tw / 2 - 10, cy + 37, tw + 20, 25, 11);
-    ctx.fillStyle = theme.panel;
-    ctx.fill();
-    ctx.strokeStyle = color;
-    ctx.stroke();
-    ctx.fillStyle = theme.text;
-    ctx.fillText(label, cx - tw / 2, cy + 54);
-
-    if (hand.gesture === "PINCH") {
-      ctx.strokeStyle = theme.accent;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(hand.landmarks[THUMB_TIP][0], hand.landmarks[THUMB_TIP][1]);
-      ctx.lineTo(hand.landmarks[INDEX_TIP][0], hand.landmarks[INDEX_TIP][1]);
-      ctx.stroke();
-    }
+    if (hand.gesture === "PINCH") drawPinchRing(ctx, hand, theme, fade, options.pinchAmount);
   }
-  ctx.restore();
 
-  if (renderedHands.length >= 2 && renderedHands.slice(0, 2).every((h) => h.gesture === "OPEN_HAND")) {
-    ctx.save();
-    ctx.globalAlpha = 0.3;
+  // Iki acik avuc: aralarinda cok silik bir bag.
+  if (renderedHands.length >= 2 && renderedHands.slice(0, 2).every((hand) => hand.gesture === "OPEN_HAND")) {
+    ctx.globalAlpha = 0.2;
     ctx.strokeStyle = theme.accent;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(renderedHands[0].palmCenter[0], renderedHands[0].palmCenter[1]);
     ctx.lineTo(renderedHands[1].palmCenter[0], renderedHands[1].palmCenter[1]);
     ctx.stroke();
-    ctx.restore();
   }
+
+  ctx.restore();
+}
+
+function strokeBones(ctx, landmarks) {
+  ctx.beginPath();
+  for (const [a, b] of HAND_CONNECTIONS) {
+    ctx.moveTo(landmarks[a][0], landmarks[a][1]);
+    ctx.lineTo(landmarks[b][0], landmarks[b][1]);
+  }
+  ctx.stroke();
+}
+
+function dot(ctx, point, radius) {
+  ctx.beginPath();
+  ctx.arc(point[0], point[1], radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/**
+ * Pinch: elin cevresinde ince dairesel gosterge.
+ * Halkanin dolulugu mevcut reverb degerini gosterir; buyuk yuzde yazisi yok.
+ */
+function drawPinchRing(ctx, hand, theme, fade, amount) {
+  const thumb = hand.landmarks[THUMB_TIP];
+  const index = hand.landmarks[INDEX_TIP];
+  const cx = (thumb[0] + index[0]) / 2;
+  const cy = (thumb[1] + index[1]) / 2;
+  const radius = Math.max(18, hand.handSize ? hand.handSize * 0.42 : 26);
+  const value = Math.max(0, Math.min(1, amount ?? 0));
+
+  ctx.globalAlpha = 0.28 * fade;
+  ctx.strokeStyle = theme.muted;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.9 * fade;
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * value);
+  ctx.stroke();
+
+  // Bas parmak ve isaret arasinda ince bag.
+  ctx.globalAlpha = 0.55 * fade;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(thumb[0], thumb[1]);
+  ctx.lineTo(index[0], index[1]);
+  ctx.stroke();
+}
+
+export function resetHandSkeleton() {
+  displayTracks.clear();
 }

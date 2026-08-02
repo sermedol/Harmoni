@@ -142,6 +142,20 @@ test("closed fist is not misread as a pinch", () => {
   assert.equal(classifyGesture([true, true, true, true, true], .90), "OPEN_HAND");
 });
 
+test("landscape scene keeps the viewport aspect on non-16:9 screens", () => {
+  // 16:10 dizustu ekranlari cok yaygin. Onceki surum yatayda her zaman
+  // 1280x720 donduruyordu; sahne orani kutu oraniyla tutmadigi icin
+  // object-fit:cover canvas'in kenarlarini kirpiyor, HUD'un tempo ve
+  // kimlik bloklari kismen ekran disinda kaliyordu.
+  for (const [w, h] of [[1440, 900], [1920, 1200], [2560, 1600], [1280, 800], [844, 390]]) {
+    const scene = sceneSizeForViewport(w, h);
+    assert.equal(scene.portrait, false, `${w}x${h} yatay olmali`);
+    assert.ok(Math.abs(scene.width / scene.height - w / h) < .005, `${w}x${h} orani korunmali`);
+  }
+  // 16:9 davranisi degismemeli.
+  assert.deepEqual(sceneSizeForViewport(1920, 1080), { width: 1280, height: 720, portrait: false });
+});
+
 test("portrait scene keeps the viewport aspect outside the old clamp band", () => {
   for (const [w, h] of [[583, 690], [768, 900], [360, 1000]]) {
     const scene = sceneSizeForViewport(w, h);

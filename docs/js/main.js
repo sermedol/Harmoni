@@ -3,23 +3,25 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-04";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-04";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-04";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-04";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-04";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-04";
-import { createAppState } from "./app-state.js?v=20260802-04";
-import { Camera } from "./camera/camera.js?v=20260802-04";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-04";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-04";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-04";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-04";
-import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-04";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-04";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-04";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-04";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-04";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-06";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-06";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-06";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-06";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-06";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-06";
+import { createAppState } from "./app-state.js?v=20260802-06";
+import { Camera } from "./camera/camera.js?v=20260802-06";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-06";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-06";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-06";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-06";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-06";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-06";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-06";
+import { clearGradientCache } from "./hud/draw-utils.js?v=20260802-06";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-06";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-06";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-06";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -28,7 +30,7 @@ let sceneHeight = CAM_HEIGHT;
 const DEMO_MODE = new URLSearchParams(location.search).has("demo");
 
 const config = loadConfig();
-// Web arayuzunun tek ve kalici gorunumu: Bordo.
+// Web arayuzunun tek ve kalici gorunumu: Biophilic (bkz. constants/themes.js).
 // Eski oturumlardan kalmis tema tercihlerini de burada gecersiz kilariz.
 config.theme_index = 0;
 // Kamera seçimi kullanıcıdan gizlidir: her açılışta tarayıcının/işletim
@@ -162,15 +164,20 @@ let sceneScale = 1;
 // icin bu mantiksal degerlerin CSS piksel karsiligini burada hesaplayip
 // degisken olarak yayinliyoruz; layout.css DOM kromunu bu degiskenlerle
 // konumlandirarak canvas icerigiyle cakismayi onluyor.
-function publishHudSafeArea(portrait, logicalWidth) {
+function publishHudSafeArea(portrait, logicalWidth, logicalHeight) {
   const stage = els.sceneCanvas.parentElement;
   if (!stage) return;
   const width = stage.getBoundingClientRect().width;
-  if (!width || !logicalWidth) return;
+  if (!width || !logicalWidth || !logicalHeight) return;
   const scale = width / logicalWidth;
-  const bottomReserve = portrait ? 154 + 16 : 112 + 22;
-  stage.style.setProperty("--hud-top", `${Math.round(130 * scale)}px`);
-  stage.style.setProperty("--hud-bottom", `${Math.round((bottomReserve + 14) * scale)}px`);
+  // Degerler HUD'un kendi geometrisinden turetilir (canvas-hud.hudZones).
+  // Sabitleri burada tekrar yazmak, HUD yerlesimi degistiginde sessizce
+  // yanlis guvenli alan uretiyordu.
+  const zones = hudZones(logicalWidth, logicalHeight);
+  const topReserve = Math.max(zones.identity[3], zones.chord[3], zones.tempo[3]) + 16;
+  const bottomReserve = (logicalHeight - zones.dock[1]) + 16;
+  stage.style.setProperty("--hud-top", `${Math.round(topReserve * scale)}px`);
+  stage.style.setProperty("--hud-bottom", `${Math.round(bottomReserve * scale)}px`);
 }
 
 function resizeSceneCanvas() {
@@ -181,7 +188,7 @@ function resizeSceneCanvas() {
   const nextScale = portrait ? 1 : Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
   // Sahne CSS genisligi, mantiksal boyut sabit kalsa bile degisebilir
   // (ornegin 1280 -> 1600 masaustu); guvenli alan her cagrida yayinlanir.
-  publishHudSafeArea(portrait, nextWidth);
+  publishHudSafeArea(portrait, nextWidth, nextHeight);
   if (sceneScale === nextScale && sceneWidth === nextWidth && sceneHeight === nextHeight && els.sceneCanvas.width === Math.round(nextWidth * nextScale)) return;
   sceneWidth = nextWidth;
   sceneHeight = nextHeight;
@@ -189,7 +196,7 @@ function resizeSceneCanvas() {
   els.sceneCanvas.width = Math.round(sceneWidth * sceneScale);
   els.sceneCanvas.height = Math.round(sceneHeight * sceneScale);
   ctx.setTransform(sceneScale, 0, 0, sceneScale, 0, 0);
-  publishHudSafeArea(portrait, nextWidth);
+  publishHudSafeArea(portrait, nextWidth, nextHeight);
   if (DEMO_MODE && document.body.classList.contains("started")) demoSource = createDemoHandSource(sceneWidth, sceneHeight);
 }
 resizeSceneCanvas();
@@ -428,7 +435,7 @@ function setPanelOpen(open) {
   els.panelBackdrop?.classList.toggle("visible", open);
   if (els.panelToggle) {
     els.panelToggle.setAttribute("aria-expanded", String(open));
-    els.panelToggle.setAttribute("aria-label", open ? "Menüyü kapat" : "Menüyü aç");
+    els.panelToggle.setAttribute("aria-label", open ? "Kontrolleri kapat" : "Kontrolleri aç");
   }
   if (els.optInputProfile) els.optInputProfile.value = config.input_profile;
   if (els.startInputProfile) els.startInputProfile.value = config.input_profile;
@@ -455,7 +462,6 @@ function showRecordResult(blob) {
 }
 
 function updateOptionsPanel() {
-  if (els.optTheme) els.optTheme.value = String(state.themeIndex);
   if (els.optTonal) els.optTonal.value = state.tonalSelection;
   if (els.optModeToggle) els.optModeToggle.textContent = state.simpleMode ? "Gelişmiş görünüm" : "Basit görünüm";
   if (els.optMonitorToggle) {
@@ -464,7 +470,7 @@ function updateOptionsPanel() {
 }
 
 function wireOptionsPanel() {
-  els.optTheme?.addEventListener("change", (e) => cycleTheme(Number(e.target.value)));
+  // Tema secici kaldirildi: tek gorsel dil var (bkz. constants/themes.js).
   els.optTonal?.addEventListener("change", (e) => setTonalSelection(e.target.value));
   els.optGenre?.addEventListener("change", (e) => applyGenre(e.target.value));
   els.optRecord?.addEventListener("click", () => toggleRecording());
@@ -632,6 +638,57 @@ const westernHarmony = new WesternHarmonyEngine();
 let lastPitchTimestamp = -1;
 
 // Canvas HUD'un ihtiyaci olan tum bilgiyi tek bir nesnede toplar.
+// Organik ortam katmani. Kendi render dongusu yok; tick() icinden cagrilir.
+const ambientScene = new AmbientScene();
+
+// Reduced motion tercihi tek yerden okunur ve degistiginde guncellenir;
+// her karede matchMedia sorgulamak gereksiz is yaratir.
+let reducedMotionQuery = null;
+let reducedMotionValue = false;
+function prefersReducedMotion() { return reducedMotionValue; }
+if (typeof matchMedia === "function") {
+  reducedMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+  reducedMotionValue = reducedMotionQuery.matches;
+  const onChange = (event) => { reducedMotionValue = event.matches; };
+  if (reducedMotionQuery.addEventListener) reducedMotionQuery.addEventListener("change", onChange);
+  else if (reducedMotionQuery.addListener) reducedMotionQuery.addListener(onChange);
+}
+
+// Jest geri bildirimi: jest degistiginde kisa sureli bir etiket gosterilir.
+// Buyuk modal degil, ana akor metniyle yarismayan kucuk bir serit.
+const GESTURE_LABELS = {
+  OPEN_HAND: "Açık avuç",
+  FIST: "Yalnız piyano",
+  PEACE: "Ritim",
+  PINCH: "Reverb",
+  POINT: "Katman geçişi",
+};
+const gestureFeedback = { label: "", shownAt: 0, lastKey: "" };
+const GESTURE_VISIBLE_MS = 900;
+
+function updateGestureFeedback(now) {
+  const detail = state.gestureDetail || "";
+  const raw = String(state.gesture || "");
+  // state.gesture "LEFT PINCH" gibi gelir; jest adini ayikla.
+  const bare = raw.split(" ").pop();
+  const key = `${raw}|${detail}`;
+  if (key !== gestureFeedback.lastKey) {
+    gestureFeedback.lastKey = key;
+    const label = detail || GESTURE_LABELS[bare] || "";
+    if (label && bare !== "NEUTRAL" && bare !== "NONE") {
+      gestureFeedback.label = label;
+      gestureFeedback.shownAt = now;
+    }
+  }
+  const age = now - gestureFeedback.shownAt;
+  if (!gestureFeedback.label || age > GESTURE_VISIBLE_MS) return { label: "", alpha: 0 };
+  // Son 300 ms'de yumusakca kaybolur.
+  const alpha = age > GESTURE_VISIBLE_MS - 300
+    ? (GESTURE_VISIBLE_MS - age) / 300
+    : Math.min(1, age / 140);
+  return { label: gestureFeedback.label, alpha };
+}
+
 function buildHudView() {
   const camOnline = state.cameraStatus === "ONLINE";
   const audioOnline = state.audioStatus === "ONLINE";
@@ -672,6 +729,13 @@ function buildHudView() {
     waveform: state.waveform,
     recording: !!(recorder && recorder.recording),
     recordTime,
+    reducedMotion: prefersReducedMotion(),
+    hasError: state.capabilities.camera === "denied" || state.capabilities.camera === "error"
+      || state.capabilities.microphone === "denied" || state.capabilities.microphone === "error",
+    ...(() => {
+      const feedback = updateGestureFeedback(performance.now());
+      return { gestureLabel: feedback.label, gestureAlpha: feedback.alpha };
+    })(),
   };
 }
 
@@ -929,7 +993,24 @@ function tick() {
   gestureController.update(packets);
   updateMusicalAnalysis();
   const theme = getTheme(state.themeIndex);
-  drawHandSkeletons(ctx, packets, theme);
+  // Cizim sirasi: kamera -> organik ortam -> el iskeleti -> HUD.
+  // Ortam katmani YALNIZCA kullaniciya gosterilen sahne canvas'ina cizilir;
+  // el tespitinde kullanilan inferenceCanvas temiz kamera karesi almaya
+  // devam eder (bkz. drawInferenceFrame).
+  if (state.cameraStatus === "ONLINE") {
+    ambientScene.draw(ctx, {
+      width: sceneWidth,
+      height: sceneHeight,
+      level: state.vocalLevel ? Math.min(1, state.vocalLevel / 0.08) : 0,
+      now,
+      reducedMotion: prefersReducedMotion(),
+      density: sceneWidth < 720 ? 0.6 : 1,
+    });
+  }
+  drawHandSkeletons(ctx, packets, theme, {
+    pinchAmount: state.fxAmount,
+    reducedMotion: prefersReducedMotion(),
+  });
   updateRecordingBadge();
   // Bilgi panelleri canvas'a cizilir -> hem ekranda hem de kayitta gorunur.
   drawCanvasHud(ctx, buildHudView(), theme, sceneWidth, sceneHeight);
@@ -1573,5 +1654,8 @@ if (new URLSearchParams(location.search).has("debug")) {
 
 window.__harmoni = {
   state, config, getTheme, tick, gestureController, synthActions,
+  // Testler HUD'un kapladigi bolgeleri cizim koduyla AYNI kaynaktan alir.
+  hudZones,
+  get sceneSize() { return { width: sceneWidth, height: sceneHeight }; },
   get audioGraph() { return audioGraph; },
 };
