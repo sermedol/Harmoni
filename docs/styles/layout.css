@@ -33,9 +33,12 @@
   overflow: hidden;
   background: var(--color-bg-deep);
   /* Canvas mantiksal olculerinden turetilir (main.js publishHudSafeArea).
-     DOM kromu bu degerlerle konumlanir ve canvas HUD ile cakismaz. */
+     DOM kromu bu degerlerle konumlanir ve canvas HUD ile cakismaz.
+     --hud-identity-bottom yalnizca HARMONI kimlik blogunun altini gosterir;
+     menu butonu buna gore konumlanir. */
   --hud-top: 130px;
   --hud-bottom: 150px;
+  --hud-identity-bottom: 76px;
 }
 
 /* =========================================================================
@@ -100,7 +103,11 @@ body:not(.started) :is(.panel-toggle, .camera-active, .hand-status, .rec-badge, 
   display: none !important;
 }
 
-/* --- Menu butonu --- */
+/* --- Menu butonu ---
+   Varsayilan konum tum HUD ust bandinin altidir: dar ekranlarda ortadaki
+   eslik blogu neredeyse tam genislik oldugu icin buton daha yukarida ona
+   binerdi. Yatay yer olan ekranlarda (>=900px) buton HARMONI kimlik
+   blogunun hemen altina alinir - bkz. asagidaki min-width kurali. */
 .panel-toggle {
   top: var(--hud-top);
   left: max(var(--space-5), var(--safe-left));
@@ -124,6 +131,12 @@ body:not(.started) :is(.panel-toggle, .camera-active, .hand-status, .rec-badge, 
               border-color var(--dur-button) var(--ease),
               transform var(--dur-button) var(--ease);
 }
+/* Genis ekranda ortadaki eslik blogu merkezde kalir ve sol kenar bosalir;
+   buton HARMONI kimliginin hemen altina cikabilir. */
+@media (min-width: 900px) {
+  .panel-toggle { top: var(--hud-identity-bottom); }
+}
+
 .panel-toggle:hover { background: var(--color-surface-glass-strong); transform: translateY(-1px); }
 .panel-toggle:active { transform: translateY(0); }
 .panel-toggle svg { width: 15px; height: 11px; flex: none; }
@@ -237,11 +250,17 @@ body:not(.started) :is(.panel-toggle, .camera-active, .hand-status, .rec-badge, 
   pointer-events: none;
 }
 
+/* Imza: alt konsolun ALTINDA, ekranin ortasinda. Sag kosede kucuk bir
+   fisilti degil; okunabilir bir kunye. */
 .feza-signature {
-  right: max(var(--space-5), var(--safe-right));
-  bottom: calc(var(--hud-bottom) + var(--space-2));
-  color: color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
-  font-size: 9.5px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(var(--space-2), var(--safe-bottom));
+  width: max-content;
+  max-width: calc(100vw - var(--space-6));
+  text-align: center;
+  color: color-mix(in srgb, var(--color-text-secondary) 86%, transparent);
+  font-size: var(--text-sm);
   letter-spacing: 0.02em;
   pointer-events: none;
 }
@@ -1327,7 +1346,8 @@ body.started .start-signature { display: none; }
     top: calc(max(var(--hud-top), var(--safe-top)) + 68px);
     right: max(var(--space-3), var(--safe-right));
   }
-  .feza-signature { display: none; }
+  /* Imza mobilde de gorunur; yalnizca puntosu bir tik kuculur. */
+  .feza-signature { font-size: var(--text-xs); bottom: max(var(--space-1), var(--safe-bottom)); }
 
   .options-panel {
     top: 0;
@@ -1410,7 +1430,8 @@ body.started .start-signature { display: none; }
   .camera-active { top: max(var(--hud-top), var(--safe-top)); }
   .hand-status { top: calc(max(var(--hud-top), var(--safe-top)) + 30px); }
   .rec-badge { top: calc(max(var(--hud-top), var(--safe-top)) + 60px); }
-  .feza-signature { display: none; }
+  /* Imza mobilde de gorunur; yalnizca puntosu bir tik kuculur. */
+  .feza-signature { font-size: var(--text-xs); bottom: max(var(--space-1), var(--safe-bottom)); }
 
   .options-panel {
     top: 0;

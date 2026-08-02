@@ -3,25 +3,25 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-08";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-08";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-08";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-08";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-08";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-08";
-import { createAppState } from "./app-state.js?v=20260802-08";
-import { Camera } from "./camera/camera.js?v=20260802-08";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-08";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-08";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-08";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-08";
-import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-08";
-import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-08";
-import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-08";
-import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-08";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-08";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-08";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-08";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-09";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-09";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-09";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-09";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-09";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-09";
+import { createAppState } from "./app-state.js?v=20260802-09";
+import { Camera } from "./camera/camera.js?v=20260802-09";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-09";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-09";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-09";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-09";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-09";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-09";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-09";
+import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-09";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-09";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-09";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-09";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -179,6 +179,10 @@ function publishHudSafeArea(portrait, logicalWidth, logicalHeight) {
   const bottomReserve = (logicalHeight - zones.dock[1]) + 16;
   stage.style.setProperty("--hud-top", `${Math.round(topReserve * scale)}px`);
   stage.style.setProperty("--hud-bottom", `${Math.round(bottomReserve * scale)}px`);
+  // Menu butonu HARMONI kimlik blogunun HEMEN altinda durur. Ortadaki
+  // eslik blogu cok daha asagi indigi icin --hud-top burada kullanilamaz:
+  // buton gereksiz yere ekranin ortasina kayardi.
+  stage.style.setProperty("--hud-identity-bottom", `${Math.round((zones.identity[3] + 12) * scale)}px`);
 }
 
 function resizeSceneCanvas() {
