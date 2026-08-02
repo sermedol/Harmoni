@@ -3,23 +3,23 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-03";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-03";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-03";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-03";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-03";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-03";
-import { createAppState } from "./app-state.js?v=20260802-03";
-import { Camera } from "./camera/camera.js?v=20260802-03";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-03";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-03";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-03";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-03";
-import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-03";
-import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-03";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-03";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-03";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-03";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-04";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-04";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-04";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-04";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-04";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-04";
+import { createAppState } from "./app-state.js?v=20260802-04";
+import { Camera } from "./camera/camera.js?v=20260802-04";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-04";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-04";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-04";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-04";
+import { drawHandSkeletons } from "./hud/hand-skeleton.js?v=20260802-04";
+import { drawCanvasHud } from "./hud/canvas-hud.js?v=20260802-04";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-04";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-04";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-04";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -120,6 +120,30 @@ const els = {
   panelBackdrop: document.getElementById("panel-backdrop"),
   optionsPanel: document.getElementById("options-panel"),
   guideClose: document.getElementById("guide-close"),
+  optVocalStudio: document.getElementById("opt-vocal-studio"),
+  vocalOverlay: document.getElementById("vocal-studio-overlay"),
+  vocalClose: document.getElementById("vocal-close"),
+  vocalMic: document.getElementById("vocal-mic"),
+  vocalMicLabel: document.getElementById("vocal-mic-label"),
+  vocalTimer: document.getElementById("vocal-timer"),
+  vocalMeter: document.querySelector(".vocal-meter"),
+  vocalMeterFill: document.getElementById("vocal-meter-fill"),
+  vocalMeterPeak: document.getElementById("vocal-meter-peak"),
+  vocalStatus: document.getElementById("vocal-status"),
+  vocalRecord: document.getElementById("vocal-record"),
+  vocalPlay: document.getElementById("vocal-play"),
+  vocalDownload: document.getElementById("vocal-download"),
+  vocalDiscard: document.getElementById("vocal-discard"),
+  vocalPlayback: document.getElementById("vocal-playback"),
+  vocalGain: document.getElementById("vocal-gain"),
+  vocalGainValue: document.getElementById("vocal-gain-value"),
+  vocalReverb: document.getElementById("vocal-reverb"),
+  vocalReverbValue: document.getElementById("vocal-reverb-value"),
+  vocalEcho: document.getElementById("vocal-echo"),
+  vocalEchoValue: document.getElementById("vocal-echo-value"),
+  vocalSource: document.getElementById("vocal-source"),
+  vocalFxToggle: document.getElementById("vocal-fx-toggle"),
+  vocalMonitorToggle: document.getElementById("vocal-monitor-toggle"),
 };
 
 const ctx = els.sceneCanvas.getContext("2d");
@@ -204,6 +228,9 @@ function setMonitorEnabled(value) {
   if (els.optMonitorToggle) {
     els.optMonitorToggle.textContent = `Vokal duyumu: ${value ? "Açık" : "Kapalı"}`;
   }
+  // Vokal studyodaki "Canli dinleme" ayni ayari gosterir; iki yuzey de
+  // ayni durumu yansitmali.
+  syncVocalMonitorButton();
   persistConfig();
 }
 
@@ -898,6 +925,7 @@ function tick() {
   }
 
   updateHandStatus(packets);
+  updateVocalMeter(now);
   gestureController.update(packets);
   updateMusicalAnalysis();
   const theme = getTheme(state.themeIndex);
@@ -1140,6 +1168,295 @@ async function runIntroSequence() {
   revealStartPanel();
 }
 
+// =========================================================================
+// VOKAL STUDYO
+// Ses zinciri worklet icinde calisir (bkz. audio/worklet/vocal-dsp.js).
+// Burasi yalnizca kontrol yuzeyi: mikrofon yasam dongusu, kayit, geri
+// dinleme, gostergeler. Kayit, kullaniciya duyulan ISLENMIS sesi icerir -
+// worklet'in kayit veri yolundan alinan PCM WAV olarak paketlenir.
+// =========================================================================
+const vocalStudio = {
+  open: false,
+  recording: false,
+  blob: null,
+  objectUrl: null,
+  duration: 0,
+  smoothedLevel: 0,
+  peakHold: 0,
+  peakHoldAt: 0,
+  clippedAt: 0,
+  quietSince: 0,
+  fxEnabled: true,
+};
+
+function setVocalStatus(message, tone = "") {
+  if (!els.vocalStatus) return;
+  els.vocalStatus.textContent = message;
+  els.vocalStatus.classList.remove("warn", "error", "ok");
+  if (tone) els.vocalStatus.classList.add(tone);
+}
+
+function formatClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function releaseVocalRecording() {
+  if (vocalStudio.objectUrl) {
+    URL.revokeObjectURL(vocalStudio.objectUrl);
+    vocalStudio.objectUrl = null;
+  }
+  vocalStudio.blob = null;
+  vocalStudio.duration = 0;
+  if (els.vocalPlayback) {
+    els.vocalPlayback.pause();
+    els.vocalPlayback.removeAttribute("src");
+    els.vocalPlayback.load();
+    els.vocalPlayback.hidden = true;
+  }
+}
+
+function updateVocalControls() {
+  const ready = !!audioGraph?.micReady;
+  const hasRecording = !!vocalStudio.blob;
+  if (els.vocalRecord) {
+    els.vocalRecord.disabled = !ready;
+    els.vocalRecord.textContent = vocalStudio.recording ? "■ Kaydı durdur" : "● Kaydı başlat";
+    els.vocalRecord.classList.toggle("recording", vocalStudio.recording);
+  }
+  for (const [element, enabled] of [
+    [els.vocalPlay, hasRecording && !vocalStudio.recording],
+    [els.vocalDownload, hasRecording && !vocalStudio.recording],
+    [els.vocalDiscard, hasRecording && !vocalStudio.recording],
+  ]) {
+    if (element) element.disabled = !enabled;
+  }
+  if (els.vocalMic) {
+    els.vocalMic.classList.toggle("live", ready && !vocalStudio.recording);
+    els.vocalMic.classList.toggle("recording", vocalStudio.recording);
+  }
+  if (els.vocalMicLabel) {
+    els.vocalMicLabel.textContent = vocalStudio.recording
+      ? "Kaydediliyor"
+      : ready ? "Mikrofon açık" : "Mikrofonu aç";
+  }
+  if (els.vocalTimer) els.vocalTimer.classList.toggle("active", vocalStudio.recording);
+}
+
+async function enableVocalMicrophone() {
+  if (!audioGraph) return;
+  // iOS/Safari: AudioContext yalnizca kullanici hareketi icinde baslar.
+  await audioGraph.resume();
+  setVocalStatus("Mikrofon izni bekleniyor…");
+  const ok = await audioGraph.enableMicrophone();
+  if (ok) {
+    setVocalStatus("Mikrofon hazır. Kaydı başlatabilirsiniz.", "ok");
+    pushVocalSettings();
+  } else {
+    setVocalStatus(state.microphoneError || "Mikrofon başlatılamadı.", "error");
+  }
+  updateVocalControls();
+}
+
+function pushVocalSettings() {
+  if (!audioGraph) return;
+  audioGraph.postControl({
+    vocalInputGain: Number(els.vocalGain?.value || 100) / 100,
+    vocalReverbMix: Number(els.vocalReverb?.value || 14) / 100,
+    vocalEchoMix: Number(els.vocalEcho?.value || 6) / 100,
+    vocalEnabled: vocalStudio.fxEnabled,
+    captureSource: els.vocalSource?.value || "mix",
+  });
+}
+
+async function toggleVocalRecording() {
+  if (!audioGraph?.micReady) return enableVocalMicrophone();
+  await audioGraph.resume();
+
+  if (vocalStudio.recording) {
+    const { blob, duration, truncated } = audioGraph.stopCapture();
+    vocalStudio.recording = false;
+    if (blob) {
+      releaseVocalRecording();
+      vocalStudio.blob = blob;
+      vocalStudio.duration = duration;
+      vocalStudio.objectUrl = URL.createObjectURL(blob);
+      if (els.vocalPlayback) {
+        els.vocalPlayback.src = vocalStudio.objectUrl;
+        els.vocalPlayback.hidden = false;
+      }
+      const size = (blob.size / (1024 * 1024)).toFixed(1);
+      setVocalStatus(
+        `Kayıt hazır — ${formatClock(duration)} · ${size} MB · WAV` +
+        (truncated ? " (süre sınırına ulaşıldı)" : ""),
+        "ok"
+      );
+    } else {
+      setVocalStatus("Kayıt alınamadı; ses yolu hazır değil.", "error");
+    }
+    updateVocalControls();
+    return;
+  }
+
+  releaseVocalRecording();
+  if (!audioGraph.startCapture()) {
+    setVocalStatus("Kayıt başlatılamadı; ses motoru hazır değil.", "error");
+    return;
+  }
+  vocalStudio.recording = true;
+  vocalStudio.quietSince = performance.now();
+  setVocalStatus("Kaydediliyor…");
+  updateVocalControls();
+}
+
+// Seviye gostergesi: dB olceginde, yumusatilmis, tepe tutuculu.
+// Ham tepe degeri dogrudan cizilirse gosterge titrer; asagidaki zaman
+// sabitleri hizli yukselip yavas dusen dogal bir hareket verir.
+function updateVocalMeter(now) {
+  if (!vocalStudio.open || !els.vocalMeterFill) return;
+  const peak = state.vocalInputPeak || 0;
+  const db = 20 * Math.log10(peak + 1e-9);
+  const normalised = clamp01((db + 60) / 60);
+
+  const rising = normalised > vocalStudio.smoothedLevel;
+  vocalStudio.smoothedLevel += (normalised - vocalStudio.smoothedLevel) * (rising ? 0.45 : 0.12);
+  const level = vocalStudio.smoothedLevel;
+
+  els.vocalMeterFill.style.width = `${(level * 100).toFixed(1)}%`;
+  els.vocalMic?.style.setProperty("--vocal-level", level.toFixed(3));
+
+  if (normalised >= vocalStudio.peakHold) {
+    vocalStudio.peakHold = normalised;
+    vocalStudio.peakHoldAt = now;
+  } else if (now - vocalStudio.peakHoldAt > 1200) {
+    vocalStudio.peakHold = Math.max(0, vocalStudio.peakHold - 0.006);
+  }
+  if (els.vocalMeterPeak) {
+    els.vocalMeterPeak.style.left = `${(vocalStudio.peakHold * 100).toFixed(1)}%`;
+    els.vocalMeterPeak.classList.toggle("visible", vocalStudio.peakHold > 0.02);
+  }
+
+  // Clipping: tam olcege cok yaklasilinca. Gosterge kisa bir sure kirmizi
+  // kalir, aksi halde tek bir orneklik tepe gozden kacar.
+  if (peak >= 0.945) vocalStudio.clippedAt = now;
+  const clipping = now - vocalStudio.clippedAt < 900;
+  els.vocalMeter?.classList.toggle("clipping", clipping);
+
+  if (!vocalStudio.recording) return;
+  els.vocalTimer.textContent = formatClock(audioGraph?.captureSeconds || 0);
+
+  if (clipping) {
+    setVocalStatus("Ses çok yüksek — giriş seviyesini düşürün.", "warn");
+    vocalStudio.quietSince = now;
+  } else if (db > -42) {
+    vocalStudio.quietSince = now;
+    if (els.vocalStatus.classList.contains("warn")) setVocalStatus("Kaydediliyor…");
+  } else if (now - vocalStudio.quietSince > 2500) {
+    setVocalStatus("Ses çok düşük — mikrofona yaklaşın veya giriş seviyesini artırın.", "warn");
+  }
+}
+
+function clamp01(value) { return value < 0 ? 0 : value > 1 ? 1 : value; }
+
+function openVocalStudio() {
+  if (!els.vocalOverlay) return;
+  vocalStudio.open = true;
+  els.vocalOverlay.hidden = false;
+  setPanelOpen?.(false);
+  updateVocalControls();
+  if (audioGraph?.micReady) {
+    setVocalStatus("Mikrofon hazır. Kaydı başlatabilirsiniz.", "ok");
+    pushVocalSettings();
+  } else {
+    setVocalStatus("Başlamak için mikrofonu açın.");
+  }
+  els.vocalMic?.focus();
+}
+
+function closeVocalStudio() {
+  if (!els.vocalOverlay) return;
+  if (vocalStudio.recording) toggleVocalRecording();
+  vocalStudio.open = false;
+  els.vocalOverlay.hidden = true;
+  els.vocalPlayback?.pause();
+}
+
+function wireVocalStudio() {
+  if (!els.vocalOverlay) return;
+
+  els.optVocalStudio?.addEventListener("click", () => openVocalStudio());
+  els.vocalClose?.addEventListener("click", () => closeVocalStudio());
+  els.vocalOverlay.addEventListener("click", (event) => {
+    if (event.target === els.vocalOverlay) closeVocalStudio();
+  });
+
+  els.vocalMic?.addEventListener("click", () => {
+    if (audioGraph?.micReady) toggleVocalRecording();
+    else enableVocalMicrophone();
+  });
+  els.vocalRecord?.addEventListener("click", () => toggleVocalRecording());
+
+  els.vocalPlay?.addEventListener("click", () => {
+    if (!vocalStudio.objectUrl || !els.vocalPlayback) return;
+    els.vocalPlayback.hidden = false;
+    els.vocalPlayback.currentTime = 0;
+    els.vocalPlayback.play().catch(() => setVocalStatus("Tarayıcı oynatmayı engelledi; oynat düğmesini kullanın.", "warn"));
+  });
+
+  els.vocalDownload?.addEventListener("click", () => {
+    if (vocalStudio.blob) downloadBlob(vocalStudio.blob, timestampName("harmoni-vokal", "wav"));
+  });
+
+  els.vocalDiscard?.addEventListener("click", () => {
+    releaseVocalRecording();
+    setVocalStatus("Kayıt silindi.");
+    updateVocalControls();
+  });
+
+  const bindSlider = (input, output, format, apply) => {
+    input?.addEventListener("input", () => {
+      if (output) output.textContent = format(Number(input.value));
+      apply();
+    });
+  };
+  bindSlider(els.vocalGain, els.vocalGainValue, (v) => `${v}%`, pushVocalSettings);
+  bindSlider(els.vocalReverb, els.vocalReverbValue, (v) => `${v}%`, pushVocalSettings);
+  bindSlider(els.vocalEcho, els.vocalEchoValue, (v) => `${v}%`, pushVocalSettings);
+
+  els.vocalSource?.addEventListener("change", () => pushVocalSettings());
+
+  els.vocalFxToggle?.addEventListener("click", () => {
+    vocalStudio.fxEnabled = !vocalStudio.fxEnabled;
+    els.vocalFxToggle.textContent = `Efektler: ${vocalStudio.fxEnabled ? "Açık" : "Kapalı"}`;
+    els.vocalFxToggle.classList.toggle("on", vocalStudio.fxEnabled);
+    pushVocalSettings();
+  });
+
+  els.vocalMonitorToggle?.addEventListener("click", () => {
+    setMonitorEnabled(!state.monitorEnabled);
+    syncVocalMonitorButton();
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && vocalStudio.open) closeVocalStudio();
+  });
+  // Sekme kapanirken akislari ve nesne URL'lerini birak.
+  window.addEventListener("pagehide", () => {
+    audioGraph?.cancelCapture();
+    releaseVocalRecording();
+  });
+
+  els.vocalFxToggle?.classList.add("on");
+  syncVocalMonitorButton();
+}
+
+function syncVocalMonitorButton() {
+  if (!els.vocalMonitorToggle) return;
+  const on = !!state.monitorEnabled;
+  els.vocalMonitorToggle.textContent = `Canlı dinleme: ${on ? "Açık" : "Kapalı"}`;
+  els.vocalMonitorToggle.classList.toggle("on", on);
+}
+
 function bootstrap() {
   applyThemeUI();
   applyModeVisibility();
@@ -1148,6 +1465,7 @@ function bootstrap() {
   populateGenreSelect();
   renderInstrumentGrid();
   wireOptionsPanel();
+  wireVocalStudio();
   setPanelOpen(false);
   updateOptionsPanel();
   if (els.optVolume) els.optVolume.value = String(Math.round(state.musicGain * 100));

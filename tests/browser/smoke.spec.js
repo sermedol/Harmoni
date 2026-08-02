@@ -114,6 +114,74 @@ test("DOM chrome does not overlap the canvas HUD blocks", async ({ page }) => {
   expect(overlaps).toEqual([]);
 });
 
+test("vocal studio opens with a complete control surface", async ({ page }) => {
+  const errors = [];
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await page.goto("/?demo=1");
+  await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });
+  await page.locator("#start-button").click();
+
+  await page.locator("#panel-toggle").click();
+  await page.locator("#opt-vocal-studio").click();
+  await expect(page.locator("#vocal-studio-overlay")).toBeVisible();
+
+  // Talep edilen tum kontroller bulunmali.
+  for (const id of [
+    "#vocal-mic", "#vocal-record", "#vocal-play", "#vocal-download", "#vocal-discard",
+    "#vocal-gain", "#vocal-reverb", "#vocal-echo", "#vocal-fx-toggle", "#vocal-monitor-toggle",
+    "#vocal-timer", "#vocal-status",
+  ]) {
+    await expect(page.locator(id)).toBeVisible();
+  }
+
+  // Mikrofon yokken kayit ve kayit sonrasi eylemler kapali olmali.
+  await expect(page.locator("#vocal-record")).toBeDisabled();
+  await expect(page.locator("#vocal-play")).toBeDisabled();
+  await expect(page.locator("#vocal-download")).toBeDisabled();
+
+  // Canli dinleme uyarisi gorunur olmali (hoparlorle geri besleme riski).
+  await expect(page.locator("#vocal-monitor-hint")).toContainText("kulaklık");
+
+  // Escape kapatmali.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#vocal-studio-overlay")).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("vocal effect sliders reach the audio engine", async ({ page }) => {
+  await page.goto("/?demo=1");
+  await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });
+  await page.locator("#start-button").click();
+  await page.locator("#panel-toggle").click();
+  await page.locator("#opt-vocal-studio").click();
+
+  const sent = await page.evaluate(() => {
+    const graph = window.__harmoni.audioGraph;
+    const messages = [];
+    graph.postControl = (payload) => messages.push(payload);
+    const set = (id, value) => {
+      const input = document.getElementById(id);
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set("vocal-gain", 180);
+    set("vocal-reverb", 22);
+    set("vocal-echo", 11);
+    document.getElementById("vocal-fx-toggle").click();
+    return messages;
+  });
+
+  const last = sent.at(-1);
+  assertClose(last.vocalInputGain, 1.8);
+  assertClose(last.vocalReverbMix, 0.22);
+  assertClose(last.vocalEchoMix, 0.11);
+  expect(last.vocalEnabled).toBe(false);      // efektler kapatildi
+
+  function assertClose(actual, expected) {
+    expect(Math.abs(actual - expected)).toBeLessThan(1e-6);
+  }
+});
+
 test("open menu stays inside the viewport", async ({ page }) => {
   await page.goto("/?demo=1");
   await page.locator("#start-overlay").click({ position: { x: 8, y: 8 } });

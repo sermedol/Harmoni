@@ -3,9 +3,9 @@
 // guzellestirme zinciri) baglandi. Gercek HarmonyEngine akor/makam verisi
 // (Milestone 6, su an icin sabit bir yerlesik C majör akoru ve Hicaz makami
 // varsayilan olarak kullanilir) henuz yok.
-import { SynthEngine } from "./synth-engine.js?v=20260802-03";
-import { VocalDSP } from "./vocal-dsp.js?v=20260802-03";
-import { PitchTracker } from "./pitch-tracker.js?v=20260802-03";
+import { SynthEngine } from "./synth-engine.js?v=20260802-04";
+import { VocalDSP } from "./vocal-dsp.js?v=20260802-04";
+import { PitchTracker } from "./pitch-tracker.js?v=20260802-04";
 
 const DEFAULT_MUSIC = {
   bpm: 96,
@@ -31,6 +31,8 @@ class HarmoniProcessor extends AudioWorkletProcessor {
     // akustik geri besleme (cizirti/uluma) olusur - Python'daki ayni risk.
     this.monitorEnabled = false;
     this.vocalLevel = 0;
+    this.captureEnabled = false;
+    this.captureVocalOnly = false;
     this.tickCount = 0;
     this.telemetryEveryNQuanta = 8; // ~21ms araliklarla (128 ornek/quanta @ 48kHz)
     // harmoni.py'deki state.waveform (256 orneklik goruntuleme tamponu) karsiligi -
@@ -53,6 +55,19 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         if ("monitorEnabled" in payload) this.monitorEnabled = payload.monitorEnabled;
         if ("fxAmount" in payload) this.vocalDsp.setFxAmount(payload.fxAmount);
         if ("vocalEnabled" in payload) this.vocalDsp.enabled = payload.vocalEnabled;
+        if ("vocalInputGain" in payload) this.vocalDsp.setInputGain(payload.vocalInputGain);
+        if ("vocalReverbMix" in payload) this.vocalDsp.setReverbMix(payload.vocalReverbMix);
+        if ("vocalEchoMix" in payload) this.vocalDsp.setEchoMix(payload.vocalEchoMix);
+        if ("vocalDecaySeconds" in payload) this.vocalDsp.setDecaySeconds(payload.vocalDecaySeconds);
+        // Vokal kaydi: kayit veri yolunun ham PCM'i ana is parcacigina
+        // gonderilir ve orada WAV olarak paketlenir (bkz. export/wav-encoder.js).
+        if ("captureEnabled" in payload) {
+          this.captureEnabled = !!payload.captureEnabled;
+          if (!this.captureEnabled) this.vocalDsp.reset();
+        }
+        // "mix" = kullanicinin duydugunun aynisi (orkestra + islenmis vokal).
+        // "vocal" = yalnizca islenmis vokal kanali.
+        if ("captureSource" in payload) this.captureVocalOnly = payload.captureSource === "vocal";
         if ("harmonyChange" in payload) this.pendingHarmony = payload.harmonyChange;
         for (const key of ["bpm", "phraseActive", "chordRevision", "tonalSystem", "chordNotes", "makamDegrees"]) {
           if (key in payload) this.music[key] = payload[key];
@@ -118,6 +133,21 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         }
       }
 
+      // Kayit veri yolunun kopyasi ana is parcacigina gonderilir. Kopya
+      // sarttir: cikis tamponlari her quantum'da yeniden kullanildigi icin
+      // referans gondermek bozuk veri uretir. Transferable kullanarak
+      // kopyalama maliyeti tek seferde kalir.
+      if (this.captureEnabled && recordOutput?.[0]) {
+        const sourceL = this.captureVocalOnly ? vocalL : recordOutput[0];
+        const sourceR = this.captureVocalOnly ? vocalR : (recordOutput[1] || recordOutput[0]);
+        const captureL = new Float32Array(sourceL);
+        const captureR = new Float32Array(sourceR);
+        this.port.postMessage(
+          { type: "capture", left: captureL, right: captureR },
+          [captureL.buffer, captureR.buffer]
+        );
+      }
+
       this.tickCount += 1;
       if (this.tickCount % this.telemetryEveryNQuanta === 0) {
         let maxAbs = 0;
@@ -131,6 +161,9 @@ class HarmoniProcessor extends AudioWorkletProcessor {
           tickCount: this.tickCount,
           hasInput,
           vocalLevel: this.vocalLevel,
+          // Seviye gostergesi ve clipping uyarisi icin: giris kazanci
+          // uygulanmis ama kompresore girmemis tepe degeri.
+          vocalInputPeak: this.vocalDsp.inputPeak,
           pitch: this.pitchSnapshot,
           stablePitch: this.pitchTracker.stablePitch,
           synthMaxAbs: maxAbs,

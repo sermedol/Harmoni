@@ -9,8 +9,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260802-03" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260802-03" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260802-04" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260802-04" />
 </head>
 <body>
   <div id="app" class="app">
@@ -119,6 +119,7 @@
               <option value="0">Bordo</option>
             </select>
           </label>
+          <button class="option-button" id="opt-vocal-studio">Vokal stüdyo</button>
           <button class="option-button" id="opt-monitor-toggle">Vokal duyumu: Kapalı</button>
           <button class="option-button" id="opt-mode-toggle" hidden>Gelişmiş görünüm</button>
           <button class="option-button guide-action" id="opt-guide">Kullanım kılavuzu <kbd>/</kbd></button>
@@ -223,6 +224,77 @@
         </div>
       </div>
 
+      <div id="vocal-studio-overlay" class="guide-overlay vocal-overlay" hidden>
+        <div class="vocal-studio guide-panel" role="dialog" aria-modal="true" aria-labelledby="vocal-studio-title">
+          <div class="guide-title">
+            <h2 id="vocal-studio-title">Vokal stüdyo</h2>
+            <button id="vocal-close" aria-label="Vokal stüdyoyu kapat">×</button>
+          </div>
+
+          <div class="vocal-stage">
+            <button id="vocal-mic" class="vocal-mic" aria-describedby="vocal-status">
+              <span class="vocal-mic-ring" id="vocal-mic-ring" aria-hidden="true"></span>
+              <span class="vocal-mic-core" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                  <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0"></path>
+                  <path d="M12 17.5V21"></path>
+                </svg>
+              </span>
+              <span class="vocal-mic-label" id="vocal-mic-label">Mikrofonu aç</span>
+            </button>
+            <div class="vocal-timer" id="vocal-timer" role="timer" aria-live="off">0:00</div>
+          </div>
+
+          <div class="vocal-meter" aria-hidden="true">
+            <div class="vocal-meter-track">
+              <div class="vocal-meter-fill" id="vocal-meter-fill"></div>
+              <div class="vocal-meter-peak" id="vocal-meter-peak"></div>
+            </div>
+            <div class="vocal-meter-scale"><span>-40</span><span>-20</span><span>-6</span><span>0 dB</span></div>
+          </div>
+
+          <div class="vocal-status" id="vocal-status" role="status" aria-live="polite">Başlamak için mikrofonu açın.</div>
+
+          <div class="vocal-transport">
+            <button class="option-button" id="vocal-record" disabled>● Kaydı başlat</button>
+            <button class="option-button" id="vocal-play" disabled>▶ Yeniden dinle</button>
+            <button class="option-button" id="vocal-download" disabled>↓ İndir</button>
+            <button class="option-button" id="vocal-discard" disabled>Kaydı sil</button>
+          </div>
+
+          <audio id="vocal-playback" controls preload="metadata" hidden></audio>
+
+          <div class="panel-section-title">Ses ayarları</div>
+          <label class="option-row">
+            <span>Mikrofon giriş seviyesi <b id="vocal-gain-value">100%</b></span>
+            <input type="range" id="vocal-gain" min="20" max="250" value="100" />
+          </label>
+          <label class="option-row">
+            <span>Reverb miktarı <b id="vocal-reverb-value">14%</b></span>
+            <input type="range" id="vocal-reverb" min="0" max="30" value="14" />
+          </label>
+          <label class="option-row">
+            <span>Echo miktarı <b id="vocal-echo-value">6%</b></span>
+            <input type="range" id="vocal-echo" min="0" max="15" value="6" />
+          </label>
+
+          <label class="option-row">
+            <span>Kayıt içeriği</span>
+            <select id="vocal-source">
+              <option value="mix">Vokal + orkestra (duyduğunuz gibi)</option>
+              <option value="vocal">Yalnız vokal</option>
+            </select>
+          </label>
+
+          <div class="vocal-toggles">
+            <button class="option-button" id="vocal-fx-toggle">Efektler: Açık</button>
+            <button class="option-button" id="vocal-monitor-toggle">Canlı dinleme: Kapalı</button>
+          </div>
+          <div class="option-hint" id="vocal-monitor-hint">Canlı dinlemede kulaklık kullanın; hoparlörle uğultu (geri besleme) oluşur.</div>
+        </div>
+      </div>
+
       <div id="record-result-overlay" class="guide-overlay" hidden>
         <div class="record-result guide-panel" role="dialog" aria-modal="true" aria-labelledby="record-result-title">
           <div class="guide-title"><h2 id="record-result-title">Performans kaydı</h2><button id="record-result-close" aria-label="Kayıt sonucunu kapat">×</button></div>
@@ -240,6 +312,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260802-03"></script>
+  <script type="module" src="js/main.js?v=20260802-04"></script>
 </body>
 </html>
