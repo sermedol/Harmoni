@@ -3,26 +3,27 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-10";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-10";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-10";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-10";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-10";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-10";
-import { createAppState } from "./app-state.js?v=20260802-10";
-import { Camera } from "./camera/camera.js?v=20260802-10";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-10";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-10";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-10";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-10";
-import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-10";
-import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-10";
-import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-10";
-import { parseProgression, createProgressionPlayer } from "./music/chord.js?v=20260802-10";
-import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-10";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-10";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-10";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-10";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-11";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-11";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-11";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-11";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-11";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-11";
+import { createAppState } from "./app-state.js?v=20260802-11";
+import { Camera } from "./camera/camera.js?v=20260802-11";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-11";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-11";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-11";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-11";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-11";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-11";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-11";
+import { parseProgression, createProgressionPlayer } from "./music/chord.js?v=20260802-11";
+import { createTapTempo } from "./music/transport.js?v=20260802-11";
+import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-11";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-11";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-11";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-11";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -93,6 +94,11 @@ const els = {
   optTheme: document.getElementById("opt-theme"),
   optTonal: document.getElementById("opt-tonal"),
   optChordSource: document.getElementById("opt-chord-source"),
+  optMeter: document.getElementById("opt-meter"),
+  optInstrument: document.getElementById("opt-instrument"),
+  optTempoTrainer: document.getElementById("opt-tempo-trainer"),
+  optTapTempo: document.getElementById("opt-tap-tempo"),
+  tempoTrainerStatus: document.getElementById("tempo-trainer-status"),
   manualChords: document.getElementById("manual-chords"),
   optProgression: document.getElementById("opt-progression"),
   progressionStatus: document.getElementById("progression-status"),
@@ -489,6 +495,10 @@ function updateOptionsPanel() {
 function wireOptionsPanel() {
   // Tema secici kaldirildi: tek gorsel dil var (bkz. constants/themes.js).
   els.optChordSource?.addEventListener("change", (e) => setChordSource(e.target.value));
+  els.optMeter?.addEventListener("change", (e) => setMeter(e.target.value));
+  els.optInstrument?.addEventListener("change", (e) => setInstrumentColor(e.target.value));
+  els.optTempoTrainer?.addEventListener("click", () => toggleTempoTrainer());
+  els.optTapTempo?.addEventListener("click", () => handleTapTempo());
   els.optProgression?.addEventListener("input", (e) => {
     applyProgressionText(e.target.value);
     if (chordSource === "manual") restartProgressionTimer();
@@ -814,6 +824,87 @@ function restartProgressionTimer() {
   if (chordSource !== "manual" || !progression.length) return;
   clearInterval(progressionTimer);
   progressionTimer = setInterval(advanceProgression, barSeconds() * 1000);
+}
+
+
+// =========================================================================
+// OLCU, ENSTRUMAN RENGI, TEMPO ANTRENORU VE TAP TEMPO
+// =========================================================================
+
+/** Olcu degisimi worklet'e gider; adim izgarasi orada degisir. */
+function setMeter(id) {
+  state.meterId = id;
+  audioGraph?.postControl({ meter: id });
+  // Manuel akor dizisi olcu basina ilerledigi icin zamanlayici yenilenir.
+  restartProgressionTimer();
+  persistConfig();
+}
+
+/** Akoru hangi calginin tasiyacagini secer. */
+function setInstrumentColor(value) {
+  state.instrumentColor = value;
+  if (value === "auto") { persistConfig(); return; }
+  // Secilen calgi acilir, diger akor tasiyicilari kapatilir; ritim ve bas
+  // katmanlarina dokunulmaz.
+  const carriers = { piano: "PIANO", guitar: "GITAR", baglama: "BAGLAMA" };
+  for (const [key, layer] of Object.entries(carriers)) {
+    const shouldBeOn = key === value;
+    const isOn = state.activeLayers.has(layer);
+    if (shouldBeOn !== isOn) synthActions.toggleLayer(layer);
+  }
+  renderInstrumentGrid();
+  persistConfig();
+}
+
+// --- Tempo antrenoru ---
+// Her tur sonunda tempoyu kucuk bir adim artirir. Calisma amaclidir:
+// kullanici ayni parcayi kademeli hizlanarak calisir.
+const tempoTrainer = { active: false, timer: 0, target: 0, startBpm: 0 };
+const TRAINER_STEP_BPM = 4;
+const TRAINER_INTERVAL_MS = 8000;
+
+function updateTrainerStatus() {
+  if (!els.tempoTrainerStatus) return;
+  els.tempoTrainerStatus.textContent = tempoTrainer.active
+    ? `Antrenör açık — ${TRAINER_INTERVAL_MS / 1000} sn'de bir +${TRAINER_STEP_BPM} BPM, ${tempoTrainer.target} BPM'de duracak`
+    : "";
+  els.optTempoTrainer?.classList.toggle("active", tempoTrainer.active);
+}
+
+function stopTempoTrainer() {
+  clearInterval(tempoTrainer.timer);
+  tempoTrainer.timer = 0;
+  tempoTrainer.active = false;
+  updateTrainerStatus();
+}
+
+function toggleTempoTrainer() {
+  if (tempoTrainer.active) { stopTempoTrainer(); return; }
+  tempoTrainer.active = true;
+  tempoTrainer.startBpm = state.music.bpm;
+  // Hedef: baslangicin %35 uzeri, slider ust siniriyla kelepcelenir.
+  tempoTrainer.target = Math.min(160, Math.round(state.music.bpm * 1.35));
+  tempoTrainer.timer = setInterval(() => {
+    const next = state.music.bpm + TRAINER_STEP_BPM;
+    if (next > tempoTrainer.target) { stopTempoTrainer(); return; }
+    if (els.optBpm) els.optBpm.value = String(next);
+    setBpm(next);
+  }, TRAINER_INTERVAL_MS);
+  updateTrainerStatus();
+}
+
+// --- Tap tempo ---
+const tapTempo = createTapTempo();
+function handleTapTempo() {
+  const bpm = tapTempo.tap(performance.now());
+  if (!bpm) {
+    if (els.tempoTrainerStatus) els.tempoTrainerStatus.textContent = "Tempoyu bulmak için birkaç kez daha vurun…";
+    return;
+  }
+  stopTempoTrainer();               // elle tempo verildi, antrenor durur
+  if (els.optBpm) els.optBpm.value = String(bpm);
+  setBpm(bpm);
+  if (els.tempoTrainerStatus) els.tempoTrainerStatus.textContent = `Tempo ${bpm} BPM olarak ayarlandı`;
 }
 
 function buildHudView() {

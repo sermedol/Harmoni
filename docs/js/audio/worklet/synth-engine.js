@@ -22,6 +22,30 @@ function halfBlockRate(k) {
 }
 const DUCK_RATE = halfBlockRate(0.12);
 
+
+// --- OLCU IZGARALARI -----------------------------------------------------
+// Onceki surumde ritim `stepIndex % 8` idi; olcu fiilen 4/4'e sabitti ve
+// 3/4, 6/8, aksak olculer secilse bile ayni sekiz adim caliyordu.
+//
+// Her izgara bir olcunun kac adim (sekizlik) surdugunu ve hangi adimlarin
+// KUVVETLI / ZAYIF / OFFBEAT oldugunu soyler. 3/4 ile 6/8 ayni sayida
+// sekizlik icerir (6) ama kuvvetli konumlari farklidir - groove'u ayiran
+// budur, adim sayisi degil.
+const METER_GRIDS = {
+  "4/4":     { steps: 8, strong: [0, 4],    weak: [2, 6],       offbeat: [1, 3, 5, 7] },
+  "3/4":     { steps: 6, strong: [0],       weak: [2, 4],       offbeat: [1, 3, 5] },
+  "6/8":     { steps: 6, strong: [0, 3],    weak: [3],          offbeat: [1, 2, 4, 5] },
+  "5/8":     { steps: 5, strong: [0],       weak: [2],          offbeat: [1, 3, 4] },
+  "7/8":     { steps: 7, strong: [0],       weak: [2, 4],       offbeat: [1, 3, 5, 6] },
+  "9/8":     { steps: 9, strong: [0],       weak: [2, 4, 6],    offbeat: [1, 3, 5, 7, 8] },
+};
+
+export function getMeterGrid(id) {
+  return METER_GRIDS[id] || METER_GRIDS["4/4"];
+}
+
+export const METER_IDS = Object.keys(METER_GRIDS);
+
 export class SynthEngine {
   constructor(sampleRate) {
     this.sampleRate = sampleRate;
@@ -38,6 +62,8 @@ export class SynthEngine {
     this.brightStateR = 0;
     this.articulation = 0.5;
     this.activeLayers = new Set(["PIANO"]);
+    this.meterId = "4/4";
+    this.grid = METER_GRIDS["4/4"];
 
     // Orkestra icin hafif, paylasilan "oda" reverb'i (VocalDSP'nin kullandigi
     // ayni MultiTapReverb sinifi, farkli parametrelerle - bkz. multitap-reverb.js).
@@ -49,6 +75,15 @@ export class SynthEngine {
       smoothingCoeff: 0.6,
       bufferSeconds: 0.55,
     });
+  }
+
+  /** Olcu degistirir. Adim sayaci olcu basina hizalanir. */
+  setMeter(id) {
+    const grid = METER_GRIDS[id];
+    if (!grid || id === this.meterId) return;
+    this.meterId = id;
+    this.grid = grid;
+    this.stepIndex = 0;      // yeni olcu bastan baslar
   }
 
   setLayers(layers) {
@@ -108,7 +143,8 @@ export class SynthEngine {
 
   _scheduleStep(music) {
     const layers = this.activeLayers;
-    const step = this.stepIndex % 8;
+    const grid = this.grid;
+    const step = this.stepIndex % grid.steps;
     const beatSeconds = 60.0 / Math.max(music.bpm, 1.0);
     const phraseActive = music.phraseActive;
     const chordChanged = music.chordRevision !== this.lastChordRevision;
@@ -116,14 +152,14 @@ export class SynthEngine {
     const articulationScale = lerp(0.55, 1.4, this.articulation);
 
     if (music.tonalSystem === "makam") {
-      this._scheduleMakamStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale);
+      this._scheduleMakamStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale, grid);
     } else {
-      this._scheduleWesternStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale);
+      this._scheduleWesternStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale, grid);
     }
     this.stepIndex += 1;
   }
 
-  _scheduleMakamStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale) {
+  _scheduleMakamStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale, grid = this.grid) {
     const degrees = music.makamDegrees;
     if (!degrees || !degrees.length) return;
     const tonic = degrees[0];
@@ -135,7 +171,7 @@ export class SynthEngine {
     // baglama duyulmaya devam ediyordu. Ayrica makam modunda PIANO icin hic
     // dal yoktu; yani "yalniz piyano" pratikte "piyano yok, pad + baglama var"
     // anlamina geliyordu. Regresyon testi: tests/web/layer-gating.test.js
-    if (chordChanged && (step === 0 || step === 4)) {
+    if (chordChanged && grid.strong.includes(step)) {
       if (layers.has("PAD")) {
         this.trigger(tonic - 12.0, "pad", phraseActive ? 0.13 : 0.19, beatSeconds * 7.4, -0.35);
         this.trigger(guclu - 12.0, "pad", phraseActive ? 0.10 : 0.14, beatSeconds * 7.4, 0.35);
@@ -148,7 +184,7 @@ export class SynthEngine {
 
     // Makamda piyano Bati usulu surekli ucluler basmaz: durak uzerinde acik
     // beslli seyrek bir pedal tutar. Boylece makam perdeleriyle cakismaz.
-    if (layers.has("PIANO") && (step === 0 || step === 4)) {
+    if (layers.has("PIANO") && grid.strong.includes(step)) {
       const velocity = phraseActive ? 0.16 : 0.24;
       this.trigger(tonic - 12.0, "piano_soft", velocity, beatSeconds * 3.2, -0.12);
       if (!phraseActive) this.trigger(guclu - 12.0, "piano_soft", velocity * 0.72, beatSeconds * 3.0, 0.12);
@@ -158,44 +194,44 @@ export class SynthEngine {
       const activeSteps = phraseActive ? [0, 3, 5] : [0, 1, 3, 4, 5, 6];
       if (activeSteps.includes(step)) {
         const pattern = [0, 2, 1, 4, 3, 2, 1, 0];
-        const note = degrees[pattern[step] % degrees.length];
+        const note = degrees[pattern[step % pattern.length] % degrees.length];
         const velocity = phraseActive ? 0.29 : 0.38;
-        this.trigger(note, "baglama", velocity, beatSeconds * 1.1 * articulationScale, -0.1 + 0.2 * (step / 7.0));
+        this.trigger(note, "baglama", velocity, beatSeconds * 1.1 * articulationScale, -0.1 + 0.2 * (step / Math.max(1, grid.steps - 1)));
       }
     }
 
-    if (layers.has("NEY") && (step === 2 || step === 6) && !phraseActive) {
+    if (layers.has("NEY") && grid.weak.includes(step) && !phraseActive) {
       const note = degrees[(step === 2 ? 4 : 2) % degrees.length];
       this.trigger(note, "ney", 0.23, beatSeconds * 3.4, -0.15);
     }
-    if (layers.has("WOODWINDS") && chordChanged && (step === 0 || step === 4)) {
+    if (layers.has("WOODWINDS") && chordChanged && grid.strong.includes(step)) {
       this.trigger(degrees[degrees.length - 1], "flute", phraseActive ? 0.12 : 0.18, beatSeconds * 3.0, 0.3);
     }
-    if (layers.has("KEMAN") && (step === 1 || step === 5) && !phraseActive) {
+    if (layers.has("KEMAN") && grid.offbeat.includes(step) && !phraseActive) {
       const note = degrees[(step === 1 ? 3 : 1) % degrees.length];
       this.trigger(note, "keman", 0.18, beatSeconds * 2.6, 0.3);
     }
-    if (layers.has("GITAR") && [1, 3, 5, 7].includes(step)) {
+    if (layers.has("GITAR") && grid.offbeat.includes(step)) {
       const pattern = [1, 3, 2, 0];
       const note = degrees[pattern[Math.floor(step / 2) % pattern.length] % degrees.length];
       const velocity = phraseActive ? 0.17 : 0.24;
       this.trigger(note, "guitar", velocity, beatSeconds * 0.9 * articulationScale, -0.2);
     }
     if (layers.has("DAVUL")) {
-      if (step === 0 || step === 4) this.trigger(40.0, "davul", phraseActive ? 0.17 : 0.24, 0.35, -0.1);
-      else if (step === 2 || step === 6) this.trigger(64.0, "davul", phraseActive ? 0.13 : 0.19, 0.12, 0.1);
+      if (grid.strong.includes(step)) this.trigger(40.0, "davul", phraseActive ? 0.17 : 0.24, 0.35, -0.1);
+      else if (grid.weak.includes(step)) this.trigger(64.0, "davul", phraseActive ? 0.13 : 0.19, 0.12, 0.1);
     }
-    if (layers.has("BRASS") && (step === 0 || step === 4) && !phraseActive) {
+    if (layers.has("BRASS") && grid.strong.includes(step) && !phraseActive) {
       this.trigger(tonic, "brass", 0.15, beatSeconds * 1.0, 0.0);
       this.trigger(guclu, "brass", 0.13, beatSeconds * 1.0, 0.2);
     }
     if (layers.has("DRUMS")) {
-      this.trigger(36, "kick", step === 0 || step === 4 ? 0.22 : 0.0, 0.18);
-      if (step === 2 || step === 6) this.trigger(38, "snare", 0.15, 0.17);
+      this.trigger(36, "kick", grid.strong.includes(step) ? 0.22 : 0.0, 0.18);
+      if (grid.weak.includes(step)) this.trigger(38, "snare", 0.15, 0.17);
     }
   }
 
-  _scheduleWesternStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale) {
+  _scheduleWesternStep(music, layers, step, beatSeconds, phraseActive, chordChanged, articulationScale, grid = this.grid) {
     const chord = music.chordNotes;
     if (!chord || !chord.length) return;
     if (layers.has("PIANO")) {
@@ -204,53 +240,53 @@ export class SynthEngine {
       const activeSteps = phraseActive ? [0, 4] : sparse ? [0, 4] : dense ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 4, 5, 6];
       if (activeSteps.includes(step)) {
         const pattern = [0, 1, 2, 1, 0, 2, 1, 2];
-        const note = chord[pattern[step] % chord.length];
+        const note = chord[pattern[step % pattern.length] % chord.length];
         const velocity = phraseActive ? 0.30 : 0.38;
-        this.trigger(note, "piano", velocity, beatSeconds * 0.68 * articulationScale, -0.08 + 0.16 * (step / 7.0));
+        this.trigger(note, "piano", velocity, beatSeconds * 0.68 * articulationScale, -0.08 + 0.16 * (step / Math.max(1, grid.steps - 1)));
       }
-      if (chordChanged && (step === 0 || step === 4)) {
+      if (chordChanged && grid.strong.includes(step)) {
         chord.forEach((n, idx) => {
           this.trigger(n, "piano_soft", phraseActive ? 0.15 : 0.21, beatSeconds * 1.45 * articulationScale, -0.18 + idx * 0.18);
         });
       }
     }
-    if (layers.has("BASS") && (step === 0 || step === 4)) {
+    if (layers.has("BASS") && grid.strong.includes(step)) {
       this.trigger(chord[0] - 12, "bass", phraseActive ? 0.30 : 0.38, beatSeconds * 0.90 * articulationScale, -0.06);
     }
-    if (layers.has("STRINGS") && chordChanged && (step === 0 || step === 4)) {
+    if (layers.has("STRINGS") && chordChanged && grid.strong.includes(step)) {
       chord.forEach((note, idx) => this.trigger(note, "strings", 0.13, beatSeconds * 3.6, -0.45 + idx * 0.45));
     }
-    if (layers.has("PAD") && chordChanged && (step === 0 || step === 4)) {
+    if (layers.has("PAD") && chordChanged && grid.strong.includes(step)) {
       chord.forEach((note, idx) => this.trigger(note - 12, "pad", 0.095, beatSeconds * 3.8, -0.58 + idx * 0.58));
     }
-    if (layers.has("WOODWINDS") && chordChanged && (step === 2 || step === 6)) {
+    if (layers.has("WOODWINDS") && chordChanged && grid.weak.includes(step)) {
       this.trigger(chord[chord.length - 1] + 12, "flute", phraseActive ? 0.14 : 0.21, beatSeconds * 3.2, 0.25);
     }
-    if (layers.has("BRASS") && (step === 0 || step === 4) && !phraseActive) {
+    if (layers.has("BRASS") && grid.strong.includes(step) && !phraseActive) {
       chord.forEach((note, idx) => this.trigger(note, "brass", 0.17, beatSeconds * 1.1, -0.3 + idx * 0.3));
     }
-    if (layers.has("BAGLAMA") && [1, 3, 5, 7].includes(step)) {
+    if (layers.has("BAGLAMA") && grid.offbeat.includes(step)) {
       const pattern = [2, 0, 1, 0];
       const note = chord[pattern[Math.floor(step / 2) % pattern.length] % chord.length];
       const velocity = phraseActive ? 0.19 : 0.26;
       this.trigger(note, "baglama", velocity, beatSeconds * 0.8 * articulationScale, 0.15);
     }
-    if (layers.has("GITAR") && [1, 3, 5, 7].includes(step)) {
+    if (layers.has("GITAR") && grid.offbeat.includes(step)) {
       const pattern = [1, 2, 0, 1];
       const note = chord[pattern[Math.floor(step / 2) % pattern.length] % chord.length];
       const velocity = phraseActive ? 0.17 : 0.23;
       this.trigger(note, "guitar", velocity, beatSeconds * 0.7 * articulationScale, -0.2);
     }
-    if (layers.has("KEMAN") && (step === 2 || step === 6) && !phraseActive) {
+    if (layers.has("KEMAN") && grid.weak.includes(step) && !phraseActive) {
       this.trigger(chord[chord.length - 1] + 12, "keman", 0.17, beatSeconds * 3.0, 0.35);
     }
     if (layers.has("DAVUL")) {
-      if (step === 0 || step === 4) this.trigger(40.0, "davul", phraseActive ? 0.18 : 0.26, 0.35, -0.1);
-      else if (step === 2 || step === 6) this.trigger(64.0, "davul", phraseActive ? 0.14 : 0.20, 0.12, 0.1);
+      if (grid.strong.includes(step)) this.trigger(40.0, "davul", phraseActive ? 0.18 : 0.26, 0.35, -0.1);
+      else if (grid.weak.includes(step)) this.trigger(64.0, "davul", phraseActive ? 0.14 : 0.20, 0.12, 0.1);
     }
     if (layers.has("DRUMS")) {
-      this.trigger(36, "kick", step === 0 || step === 4 ? 0.24 : 0.0, 0.18);
-      if (step === 2 || step === 6) this.trigger(38, "snare", 0.18, 0.17);
+      this.trigger(36, "kick", grid.strong.includes(step) ? 0.24 : 0.0, 0.18);
+      if (grid.weak.includes(step)) this.trigger(38, "snare", 0.18, 0.17);
       if (step % 2 === 0) this.trigger(42, "hat", 0.07, 0.08, 0.18);
     }
   }

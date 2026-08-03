@@ -4,7 +4,7 @@
 // `available=false` olur ve process() daima bos dizi dondurur - uygulamanin
 // geri kalani (jest kontrolu, HUD) sessizce "eller yok" durumuna duser.
 import { clamp } from "../constants/music-utils.js";
-import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-10";
+import { classifyGesture, createGestureHistory } from "./gesture-classifier.js?v=20260802-11";
 
 const VISION_VERSION = "0.10.14";
 const VISION_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VERSION}`;

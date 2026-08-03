@@ -3,9 +3,9 @@
 // guzellestirme zinciri) baglandi. Gercek HarmonyEngine akor/makam verisi
 // (Milestone 6, su an icin sabit bir yerlesik C majör akoru ve Hicaz makami
 // varsayilan olarak kullanilir) henuz yok.
-import { SynthEngine } from "./synth-engine.js?v=20260802-10";
-import { VocalDSP } from "./vocal-dsp.js?v=20260802-10";
-import { PitchTracker } from "./pitch-tracker.js?v=20260802-10";
+import { SynthEngine } from "./synth-engine.js?v=20260802-11";
+import { VocalDSP } from "./vocal-dsp.js?v=20260802-11";
+import { PitchTracker } from "./pitch-tracker.js?v=20260802-11";
 
 const DEFAULT_MUSIC = {
   bpm: 96,
@@ -32,7 +32,7 @@ class HarmoniProcessor extends AudioWorkletProcessor {
     this.monitorEnabled = false;
     this.vocalLevel = 0;
     this.captureEnabled = false;
-    this.captureVocalOnly = false;
+    this.captureSource = "mix";
     this.tickCount = 0;
     this.telemetryEveryNQuanta = 8; // ~21ms araliklarla (128 ornek/quanta @ 48kHz)
     // harmoni.py'deki state.waveform (256 orneklik goruntuleme tamponu) karsiligi -
@@ -48,6 +48,7 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         if (!msg || msg.type !== "control") return;
         const payload = msg.payload;
         if ("activeLayers" in payload) this.synth.setLayers(payload.activeLayers);
+        if ("meter" in payload) this.synth.setMeter(payload.meter);
         if ("brightness" in payload) this.synth.setBrightness(payload.brightness);
         if ("articulation" in payload) this.synth.setArticulation(payload.articulation);
         if ("density" in payload) this.synth.density = payload.density;
@@ -67,7 +68,9 @@ class HarmoniProcessor extends AudioWorkletProcessor {
         }
         // "mix" = kullanicinin duydugunun aynisi (orkestra + islenmis vokal).
         // "vocal" = yalnizca islenmis vokal kanali.
-        if ("captureSource" in payload) this.captureVocalOnly = payload.captureSource === "vocal";
+        // "mix" duyulanin aynisi, "vocal" yalnizca islenmis vokal,
+        // "music" yalnizca orkestra (vokalsiz altyapi).
+        if ("captureSource" in payload) this.captureSource = payload.captureSource || "mix";
         if ("harmonyChange" in payload) this.pendingHarmony = payload.harmonyChange;
         for (const key of ["bpm", "phraseActive", "chordRevision", "tonalSystem", "chordNotes", "makamDegrees"]) {
           if (key in payload) this.music[key] = payload[key];
@@ -138,8 +141,10 @@ class HarmoniProcessor extends AudioWorkletProcessor {
       // referans gondermek bozuk veri uretir. Transferable kullanarak
       // kopyalama maliyeti tek seferde kalir.
       if (this.captureEnabled && recordOutput?.[0]) {
-        const sourceL = this.captureVocalOnly ? vocalL : recordOutput[0];
-        const sourceR = this.captureVocalOnly ? vocalR : (recordOutput[1] || recordOutput[0]);
+        let sourceL = recordOutput[0];
+        let sourceR = recordOutput[1] || recordOutput[0];
+        if (this.captureSource === "vocal") { sourceL = vocalL; sourceR = vocalR; }
+        else if (this.captureSource === "music") { sourceL = musicL; sourceR = musicR; }
         const captureL = new Float32Array(sourceL);
         const captureR = new Float32Array(sourceR);
         this.port.postMessage(

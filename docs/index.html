@@ -9,8 +9,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260802-10" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260802-10" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260802-11" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260802-11" />
 </head>
 <body>
   <div id="app" class="app">
@@ -103,9 +103,37 @@
           </label>
 
           <label class="option-row">
+            <span>Ölçü</span>
+            <select id="opt-meter">
+              <option value="4/4">4/4 — düz</option>
+              <option value="3/4">3/4 — vals</option>
+              <option value="6/8">6/8 — bileşik</option>
+              <option value="5/8">5/8 — aksak</option>
+              <option value="7/8">7/8 — aksak</option>
+              <option value="9/8">9/8 — aksak</option>
+            </select>
+          </label>
+
+          <label class="option-row">
             <span>Tempo <b id="opt-bpm-value">96</b> BPM</span>
             <input type="range" id="opt-bpm" min="50" max="160" value="96" />
           </label>
+
+          <label class="option-row">
+            <span>Enstrüman rengi</span>
+            <select id="opt-instrument">
+              <option value="auto">Otomatik — türe göre</option>
+              <option value="piano">Piyano</option>
+              <option value="guitar">Gitar</option>
+              <option value="baglama">Bağlama</option>
+            </select>
+          </label>
+
+          <div class="option-button-row">
+            <button class="option-button compact" id="opt-tempo-trainer">🏃 Tempo antrenörü</button>
+            <button class="option-button compact" id="opt-tap-tempo">Tap tempo</button>
+          </div>
+          <div class="option-hint" id="tempo-trainer-status"></div>
 
           <div class="option-divider"></div>
 
@@ -449,6 +477,7 @@
             <select id="vocal-source">
               <option value="mix">Vokal + orkestra (duyduğunuz gibi)</option>
               <option value="vocal">Yalnız vokal</option>
+              <option value="music">Yalnız eşlik (vokalsiz)</option>
             </select>
           </label>
 
@@ -477,6 +506,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260802-10"></script>
+  <script type="module" src="js/main.js?v=20260802-11"></script>
 </body>
 </html>
