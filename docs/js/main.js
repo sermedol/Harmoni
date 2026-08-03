@@ -3,25 +3,26 @@
 // 4-6); su an icin worklet yalnizca mikrofon->cikis gecici (passthrough) hat
 // ve MessagePort protokolunu saglar. synthActions hem yerel state'i (HUD
 // icin) hem de (varsa) worklet'e control mesajlarini gunceller.
-import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-09";
-import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-09";
-import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-09";
-import { GENRES, getGenre } from "./constants/genres.js?v=20260802-09";
-import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-09";
-import { loadConfig, saveConfig } from "./config.js?v=20260802-09";
-import { createAppState } from "./app-state.js?v=20260802-09";
-import { Camera } from "./camera/camera.js?v=20260802-09";
-import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-09";
-import { HandTracker } from "./camera/hand-tracker.js?v=20260802-09";
-import { GestureController } from "./camera/gesture-controller.js?v=20260802-09";
-import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-09";
-import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-09";
-import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-09";
-import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-09";
-import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-09";
-import { AudioGraph } from "./audio/audio-graph.js?v=20260802-09";
-import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-09";
-import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-09";
+import { applyTheme, getTheme } from "./constants/themes.js?v=20260802-10";
+import { LAYER_KEYS, ALL_LAYERS, LAYER_KEY_BY_NAME, LAYER_LABEL_BY_NAME } from "./constants/layers.js?v=20260802-10";
+import { buildTonalOptionGroups, resolveTonalSelection } from "./constants/tonal-systems.js?v=20260802-10";
+import { GENRES, getGenre } from "./constants/genres.js?v=20260802-10";
+import { SessionRecorder, downloadBlob, timestampName } from "./export/recorder.js?v=20260802-10";
+import { loadConfig, saveConfig } from "./config.js?v=20260802-10";
+import { createAppState } from "./app-state.js?v=20260802-10";
+import { Camera } from "./camera/camera.js?v=20260802-10";
+import { fitContain, sceneSizeForViewport, shouldMirror } from "./camera/camera-math.js?v=20260802-10";
+import { HandTracker } from "./camera/hand-tracker.js?v=20260802-10";
+import { GestureController } from "./camera/gesture-controller.js?v=20260802-10";
+import { createDemoHandSource, drawDemoBackground } from "./camera/demo-source.js?v=20260802-10";
+import { drawHandSkeletons, resetHandSkeleton } from "./hud/hand-skeleton.js?v=20260802-10";
+import { drawCanvasHud, resetHudState, hudZones } from "./hud/canvas-hud.js?v=20260802-10";
+import { AmbientScene } from "./hud/ambient-scene.js?v=20260802-10";
+import { parseProgression, createProgressionPlayer } from "./music/chord.js?v=20260802-10";
+import { clearGradientCache, setPalette } from "./hud/draw-utils.js?v=20260802-10";
+import { AudioGraph } from "./audio/audio-graph.js?v=20260802-10";
+import { PhraseDetector } from "./harmony/phrase-detector.js?v=20260802-10";
+import { WesternHarmonyEngine } from "./harmony/western-harmony-engine.js?v=20260802-10";
 
 const CAM_WIDTH = 1280;
 const CAM_HEIGHT = 720;
@@ -91,6 +92,11 @@ const els = {
   simpleWaveformCanvas: document.getElementById("simple-waveform-canvas"),
   optTheme: document.getElementById("opt-theme"),
   optTonal: document.getElementById("opt-tonal"),
+  optChordSource: document.getElementById("opt-chord-source"),
+  manualChords: document.getElementById("manual-chords"),
+  optProgression: document.getElementById("opt-progression"),
+  progressionStatus: document.getElementById("progression-status"),
+  progressionChips: document.getElementById("progression-chips"),
   optModeToggle: document.getElementById("opt-mode-toggle"),
   optFullOrchestra: document.getElementById("opt-full-orchestra"),
   optMute: document.getElementById("opt-mute"),
@@ -390,6 +396,8 @@ function setMusicGain(value) {
 }
 
 function setBpm(value) {
+  // Manuel akor dizisi olcu basina ilerler; olcu suresi tempoya bagli.
+  setTimeout(restartProgressionTimer, 0);
   state.music.bpm = value;
   audioGraph?.postControl({ bpm: value });
   if (els.optBpmValue) els.optBpmValue.textContent = String(value);
@@ -480,6 +488,11 @@ function updateOptionsPanel() {
 
 function wireOptionsPanel() {
   // Tema secici kaldirildi: tek gorsel dil var (bkz. constants/themes.js).
+  els.optChordSource?.addEventListener("change", (e) => setChordSource(e.target.value));
+  els.optProgression?.addEventListener("input", (e) => {
+    applyProgressionText(e.target.value);
+    if (chordSource === "manual") restartProgressionTimer();
+  });
   els.optTonal?.addEventListener("change", (e) => setTonalSelection(e.target.value));
   els.optGenre?.addEventListener("change", (e) => applyGenre(e.target.value));
   els.optRecord?.addEventListener("click", () => toggleRecording());
@@ -663,39 +676,144 @@ if (typeof matchMedia === "function") {
   else if (reducedMotionQuery.addListener) reducedMotionQuery.addListener(onChange);
 }
 
-// Jest geri bildirimi: jest degistiginde kisa sureli bir etiket gosterilir.
+// Jest geri bildirimi: gercek bir olay olduğunda kisa sureli bir etiket.
 // Buyuk modal degil, ana akor metniyle yarismayan kucuk bir serit.
-const GESTURE_LABELS = {
-  OPEN_HAND: "Açık avuç",
-  FIST: "Yalnız piyano",
-  PEACE: "Ritim",
-  PINCH: "Reverb",
-  POINT: "Katman geçişi",
-};
-const gestureFeedback = { label: "", shownAt: 0, lastKey: "" };
-const GESTURE_VISIBLE_MS = 900;
+// Etiket metnini gesture-controller uretir (emit); burada yalnizca
+// gosterim zamanlamasi yonetilir.
+const gestureFeedback = { label: "", shownAt: 0, eventId: "", pending: null };
+// Etiket toplam gorunurlugu ve DEGISMEDEN once beklemesi gereken en kisa
+// sure. Minimum tutma olmadan ard arda gelen jestlerde metin ziplayarak
+// degisiyor ve okunamiyordu.
+const GESTURE_VISIBLE_MS = 1800;
+const GESTURE_HOLD_MS = 900;
+const GESTURE_FADE_MS = 320;
 
 function updateGestureFeedback(now) {
-  const detail = state.gestureDetail || "";
-  const raw = String(state.gesture || "");
-  // state.gesture "LEFT PINCH" gibi gelir; jest adini ayikla.
-  const bare = raw.split(" ").pop();
-  const key = `${raw}|${detail}`;
-  if (key !== gestureFeedback.lastKey) {
-    gestureFeedback.lastKey = key;
-    const label = detail || GESTURE_LABELS[bare] || "";
-    if (label && bare !== "NEUTRAL" && bare !== "NONE") {
-      gestureFeedback.label = label;
+  // Etiket YALNIZCA gercek olaya bakar (gesture-controller emit()).
+  // state.gestureDetail canli sayac ve yuzde icerdigi icin her karede
+  // degisiyordu; ona baglanmak titremenin kaynagiydi.
+  const event = state.gestureEvent;
+  if (event && event.id !== gestureFeedback.eventId) {
+    const elapsed = now - gestureFeedback.shownAt;
+    if (gestureFeedback.label && elapsed < GESTURE_HOLD_MS) {
+      // Onceki etiket henuz minimum suresini doldurmadi: siraya al.
+      gestureFeedback.pending = event;
+    } else {
+      gestureFeedback.eventId = event.id;
+      gestureFeedback.label = event.text;
       gestureFeedback.shownAt = now;
+      gestureFeedback.pending = null;
     }
   }
+
+  // Bekleyen etiket varsa minimum sure dolunca devreye girer.
+  if (gestureFeedback.pending && now - gestureFeedback.shownAt >= GESTURE_HOLD_MS) {
+    gestureFeedback.eventId = gestureFeedback.pending.id;
+    gestureFeedback.label = gestureFeedback.pending.text;
+    gestureFeedback.shownAt = now;
+    gestureFeedback.pending = null;
+  }
+
   const age = now - gestureFeedback.shownAt;
   if (!gestureFeedback.label || age > GESTURE_VISIBLE_MS) return { label: "", alpha: 0 };
-  // Son 300 ms'de yumusakca kaybolur.
-  const alpha = age > GESTURE_VISIBLE_MS - 300
-    ? (GESTURE_VISIBLE_MS - age) / 300
-    : Math.min(1, age / 140);
+  const alpha = age > GESTURE_VISIBLE_MS - GESTURE_FADE_MS
+    ? (GESTURE_VISIBLE_MS - age) / GESTURE_FADE_MS
+    : Math.min(1, age / 180);
   return { label: gestureFeedback.label, alpha };
+}
+
+// =========================================================================
+// MANUEL AKOR MODU
+// Kullanici "Am · F · C · G" gibi bir dizi yazar; eslik bu diziyi olcu
+// basina ilerleyerek calar. Otomatik tonalite analizi ve jest kontrolu
+// bozulmaz - yalnizca akor KAYNAGI degisir.
+//
+// Zamanlama: main thread yalnizca "siradaki akor" karari verir; degisimin
+// hangi ritmik noktada uygulanacagina worklet karar verir (applyAtStep).
+// Boylece tarayici zamanlayicisinin kaymasi muzikal sonucu bozmaz.
+// =========================================================================
+const progression = createProgressionPlayer();
+let chordSource = "auto";
+let progressionTimer = 0;
+let progressionRevision = 5000;   // otomatik motorun revizyonlariyla carpismasin
+
+function barSeconds() {
+  // Mevcut motor sekiz adimli, her adim yarim vurus -> olcu = 4 vurus.
+  return (60 / Math.max(1, state.music.bpm)) * 4;
+}
+
+function renderProgressionChips(chords, activeIndex) {
+  if (!els.progressionChips) return;
+  els.progressionChips.innerHTML = "";
+  chords.forEach((chord, index) => {
+    const chip = document.createElement("span");
+    chip.className = "progression-chip" + (index === activeIndex ? " active" : "");
+    chip.textContent = chord.name;
+    els.progressionChips.appendChild(chip);
+  });
+}
+
+function applyProgressionText(text) {
+  const { chords, invalid } = parseProgression(text);
+  progression.set(chords);
+
+  if (!els.progressionStatus) return chords;
+  if (!text.trim()) {
+    els.progressionStatus.textContent = "Boşluk veya · ile ayırın. Örnek: Am F C G — Dm7 G7 Cmaj7";
+    els.progressionStatus.classList.remove("warn");
+  } else if (invalid.length) {
+    // Tanınmayan sembol sessizce atlanmaz; kullanici hangisi oldugunu gorur.
+    els.progressionStatus.textContent = `Anlaşılmayan: ${invalid.join(", ")} — ${chords.length} akor çalınacak`;
+    els.progressionStatus.classList.add("warn");
+  } else {
+    els.progressionStatus.textContent = `${chords.length} akor · her ölçüde bir ilerler`;
+    els.progressionStatus.classList.remove("warn");
+  }
+  renderProgressionChips(chords, chords.length ? 0 : -1);
+  return chords;
+}
+
+/** Manuel modda siradaki akoru olcu basinda gonderir. */
+function advanceProgression() {
+  if (chordSource !== "manual" || !progression.length || !audioGraph) return;
+  const chord = progression.next();
+  if (!chord) return;
+
+  progressionRevision += 1;
+  state.music.chordName = chord.name;
+  state.music.chordNotes = chord.notes;
+  audioGraph.postControl({
+    harmonyChange: {
+      chordNotes: chord.notes,
+      revision: progressionRevision,
+      applyAtStep: 0,          // worklet olcu basinda uygular
+    },
+  });
+  // Imlec bir sonrakini gosterdigi icin calan akor bir gerisi.
+  const playing = (progression.currentIndex - 1 + progression.length) % progression.length;
+  renderProgressionChips(parseProgression(els.optProgression?.value || "").chords, playing);
+}
+
+function setChordSource(value) {
+  chordSource = value === "manual" ? "manual" : "auto";
+  if (els.manualChords) els.manualChords.hidden = chordSource !== "manual";
+  clearInterval(progressionTimer);
+  progressionTimer = 0;
+
+  if (chordSource === "manual") {
+    progression.reset();
+    advanceProgression();
+    // Olcu uzunlugu tempoya bagli; tempo degisirse yeniden kurulur.
+    progressionTimer = setInterval(advanceProgression, barSeconds() * 1000);
+  }
+  persistConfig();
+}
+
+/** Tempo degisince olcu suresi degisir; zamanlayici yeniden kurulmali. */
+function restartProgressionTimer() {
+  if (chordSource !== "manual" || !progression.length) return;
+  clearInterval(progressionTimer);
+  progressionTimer = setInterval(advanceProgression, barSeconds() * 1000);
 }
 
 function buildHudView() {

@@ -4,6 +4,23 @@
 // calisir, boylece gercek ses motoru (worklet) baglanana kadar (Milestone
 // 3-4) main.js bir stub gecebilir; bu dosyanin kendisi degismez.
 import { clamp, lerp } from "../constants/music-utils.js";
+import { LAYER_LABEL_BY_NAME } from "../constants/layers.js";
+
+// Sahnede gosterilen etiketin titrememesi icin SUREKLI DURUM ile GERCEK
+// OLAY ayrilir:
+//   state.gestureDetail  her karede degisebilen surekli durum metni
+//                        (gelismis gorunum ve ekran okuyucu icin)
+//   state.gestureEvent   yalnizca gercekten bir sey OLDUGUNDA yazilir
+//                        (katman acildi/kapandi, tam orkestra vb.)
+// Onceki surumde sahne etiketi gestureDetail'e bakiyordu; icinde canli
+// sayac ("... 0.5s") ve yuzde ("%84") oldugu icin metin her karede
+// degisip titriyordu.
+function emit(state, id, text) {
+  if (state.gestureEvent?.id === id) return;
+  state.gestureEvent = { id, text, at: performance.now() };
+}
+
+const layerName = (layer) => LAYER_LABEL_BY_NAME[layer] || layer;
 
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -82,7 +99,7 @@ export class GestureController {
     this._updateExpression(hands);
     if (!hands.length) {
       this.state.gesture = "SCANNING";
-      this.state.gestureDetail = "ELLER BEKLENIYOR";
+      this.state.gestureDetail = "Eller bekleniyor";
       this.dualOpenSince = null;
       this.dualTriggered = false;
       this.previousGestures.clear();
@@ -94,11 +111,14 @@ export class GestureController {
       if (this.dualOpenSince === null) this.dualOpenSince = performance.now() / 1000;
       const held = performance.now() / 1000 - this.dualOpenSince;
       this.state.gesture = "DUAL OPEN";
-      this.state.gestureDetail = `FULL ORCHESTRA ARMING ${held.toFixed(1)}s`;
+      // Canli sayac YALNIZCA surekli durum metninde; sahne etiketi bunu
+      // gostermez, yoksa saniyede onlarca kez degisir.
+      this.state.gestureDetail = `Tam orkestra hazırlanıyor ${held.toFixed(1)}s`;
       if (held > 0.55 && !this.dualTriggered) {
         this.synthActions.fullOrchestra();
         this.dualTriggered = true;
-        this.state.gestureDetail = "TAM ORKESTRA AKTIF";
+        this.state.gestureDetail = "Tam orkestra açık";
+        emit(this.state, "full-orchestra", "Tam orkestra");
       }
       this._mapHandDistance(openHands[0], openHands[1]);
       return;
@@ -112,7 +132,11 @@ export class GestureController {
       const amount = clamp((0.55 - hand.pinch) / 0.42, 0, 1);
       this.synthActions.setFxAmount(amount);
       this.state.gesture = `${hand.label} PINCH`;
-      this.state.gestureDetail = `VOCAL SPACE ${String(Math.round(amount * 100)).padStart(2, "0")}%`;
+      const percent = Math.round(amount * 100);
+      this.state.gestureDetail = `Reverb %${percent}`;
+      // Pinch surekli bir kontrol. Etiket her yuzdede degisirse titrer;
+      // yalnizca %10'luk basamaklarda yenilenir.
+      emit(this.state, `pinch-${Math.round(percent / 10)}`, `Reverb %${Math.round(percent / 10) * 10}`);
       return;
     }
 
@@ -123,37 +147,44 @@ export class GestureController {
     this.previousGestures.set(hand.label, gesture);
     this.state.gesture = `${hand.label} ${gesture}`;
 
+    // NOT: asagida etiket (emit) YALNIZCA `entered` oldugunda, yani jest
+    // yeni girildiginde yazilir. Jest basili tutuldugu surece tekrar
+    // yazilmaz; aksi halde el havada durdugu surece etiket yanip soner.
     if (gesture === "OPEN_HAND") {
       const target = hand.label === "RIGHT" ? "STRINGS" : "PAD";
-      if (entered) {
-        if (!this.state.activeLayers.has(target)) this.synthActions.toggleLayer(target);
+      if (entered && !this.state.activeLayers.has(target)) {
+        this.synthActions.toggleLayer(target);
+        emit(this.state, `open-${target}`, `${layerName(target)} açık`);
       }
-      this.state.gestureDetail = `${target} KATMANI ACIK`;
+      this.state.gestureDetail = `${layerName(target)} açık`;
     } else if (gesture === "PEACE") {
-      let detail;
       if (entered) {
         const active = this.synthActions.toggleLayer("DRUMS");
-        detail = active ? "DRUMS AKTIF" : "DRUMS KAPALI";
+        const text = active ? "Ritim açık" : "Ritim kapalı";
+        this.state.gestureDetail = text;
+        emit(this.state, `drums-${active}`, text);
       } else {
-        detail = "RITIM KOMUTU KILITLI";
+        this.state.gestureDetail = "Ritim komutu kilitli";
       }
-      this.state.gestureDetail = detail;
     } else if (gesture === "FIST") {
-      if (entered) this.synthActions.muteExtras();
-      this.state.gestureDetail = "EK KATMANLAR SUSTURULDU";
+      if (entered) {
+        this.synthActions.muteExtras();
+        emit(this.state, "only-piano", "Yalnız piyano");
+      }
+      this.state.gestureDetail = "Yalnız piyano";
     } else if (gesture === "POINT") {
-      let detail;
       if (entered) {
         const layer = this.layerOrder[this.layerCursor % this.layerOrder.length];
         this.layerCursor += 1;
         const active = this.synthActions.toggleLayer(layer);
-        detail = `${layer} ${active ? "AKTIF" : "KAPALI"}`;
+        const text = `${layerName(layer)} ${active ? "açık" : "kapalı"}`;
+        this.state.gestureDetail = text;
+        emit(this.state, `layer-${layer}-${active}`, text);
       } else {
-        detail = "KATMAN SECIMI";
+        this.state.gestureDetail = "Katman seçimi";
       }
-      this.state.gestureDetail = detail;
     } else {
-      this.state.gestureDetail = "HAREKET IZLENIYOR";
+      this.state.gestureDetail = "Hareket izleniyor";
     }
   }
 

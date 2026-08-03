@@ -9,8 +9,8 @@
 <title>Harmoni — El hareketiyle canli orkestra eslgi</title>
 <meta name="description" content="Kamera ile el takibi ve mikrofonla vokal analizi kullanarak gercek zamanli piyano/orkestra eslgi ureten tarayici tabanli muzik araci." />
 <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="styles/theme.css?v=20260802-09" />
-  <link rel="stylesheet" href="styles/layout.css?v=20260802-09" />
+  <link rel="stylesheet" href="styles/theme.css?v=20260802-10" />
+  <link rel="stylesheet" href="styles/layout.css?v=20260802-10" />
 </head>
 <body>
   <div id="app" class="app">
@@ -69,6 +69,27 @@
             <select id="opt-genre"></select>
           </label>
           <div class="option-hint" id="opt-genre-hint"></div>
+
+          <label class="option-row">
+            <span>Akor kaynağı</span>
+            <select id="opt-chord-source">
+              <option value="auto">Otomatik — sesimi dinle</option>
+              <option value="manual">Manuel — akorları ben yazayım</option>
+            </select>
+          </label>
+
+          <div id="manual-chords" hidden>
+            <label class="option-row">
+              <span>Akor dizisi</span>
+              <input type="text" id="opt-progression" inputmode="latin"
+                     placeholder="Am · F · C · G"
+                     aria-describedby="progression-status" />
+            </label>
+            <div class="option-hint" id="progression-status" role="status" aria-live="polite">
+              Boşluk veya · ile ayırın. Örnek: Am F C G — Dm7 G7 Cmaj7
+            </div>
+            <div class="progression-chips" id="progression-chips" aria-hidden="true"></div>
+          </div>
 
           <label class="option-row">
             <span>Makam / Dizi</span>
@@ -456,6 +477,6 @@
     <pre id="debug-log" class="debug-log" hidden></pre>
   </div>
 
-  <script type="module" src="js/main.js?v=20260802-09"></script>
+  <script type="module" src="js/main.js?v=20260802-10"></script>
 </body>
 </html>
